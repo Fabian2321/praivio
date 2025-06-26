@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # Frontend - React Application
+  frontend:
+    container_name: praivio-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_OLLAMA_URL=http://localhost:11434
+      - REACT_APP_TITLE=Praivio
+    depends_on:
+      - backend
+    networks:
+      - praivio-network
+
+  # Backend - FastAPI Server
+  backend:
+    container_name: praivio-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - app_data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///./data/app.db
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - LOG_LEVEL=INFO
+    depends_on:
+      - ollama
+    networks:
+      - praivio-network
+
+  # LLM Engine - Ollama
+  ollama:
+    container_name: praivio-ollama
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - praivio-network
+
+  # Database - SQLite (can be upgraded to PostgreSQL)
+  database:
+    container_name: praivio-database
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=praivio_db
+      - POSTGRES_USER=praivio_user
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-praivio_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - praivio-network
+
+volumes:
+  ollama_data:
+  postgres_data:
+  app_data:
+
+networks:
+  praivio-network:
+    driver: bridge 
