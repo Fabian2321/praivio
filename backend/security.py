@@ -142,42 +142,6 @@ class SecurityManager:
         
         return True
 
-class AuditLogger:
-    """Erweiterte Audit-Logging-Funktionalität"""
-    
-    def __init__(self, db_connection):
-        self.db = db_connection
-        
-    def log_user_action(self, user_id: int, action: str, details: str, ip_address: str, success: bool = True):
-        """Loggt Benutzeraktionen für Compliance"""
-        try:
-            cursor = self.db.cursor()
-            cursor.execute("""
-                INSERT INTO audit_logs (user_id, action, details, ip_address, success, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user_id, action, details, ip_address, success, datetime.now()))
-            self.db.commit()
-        except Exception as e:
-            logger.error(f"Audit logging failed: {e}")
-    
-    def log_data_access(self, user_id: int, data_type: str, record_id: int, ip_address: str):
-        """Loggt Datenzugriffe für DSGVO-Compliance"""
-        self.log_user_action(
-            user_id=user_id,
-            action="DATA_ACCESS",
-            details=f"Accessed {data_type} record {record_id}",
-            ip_address=ip_address
-        )
-    
-    def log_data_export(self, user_id: int, data_type: str, record_count: int, ip_address: str):
-        """Loggt Datenexporte"""
-        self.log_user_action(
-            user_id=user_id,
-            action="DATA_EXPORT",
-            details=f"Exported {record_count} {data_type} records",
-            ip_address=ip_address
-        )
-
 class RateLimiter:
     """Rate Limiting für API-Endpunkte"""
     

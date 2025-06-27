@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Lock, User, AlertCircle, CheckCircle } from 'lucide-react';
 import axios from 'axios';
+import { supabase } from '../supabaseClient';
 
 const Login = ({ onLoginSuccess }) => {
   const [formData, setFormData] = useState({
-    username: '',
+    email: '',
     password: ''
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -29,29 +30,32 @@ const Login = ({ onLoginSuccess }) => {
     setSuccess('');
 
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}/auth/login`, formData);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
       
-      if (response.data.access_token) {
-        // Store token in localStorage
-        localStorage.setItem('praivio_token', response.data.access_token);
-        localStorage.setItem('praivio_user', JSON.stringify(response.data.user));
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          setError('Ungültige Anmeldedaten');
+        } else {
+          setError(error.message);
+        }
+      } else if (data.user && data.session) {
+        // Store Supabase token in localStorage
+        localStorage.setItem('supabaseToken', data.session.access_token);
+        localStorage.setItem('supabaseUser', JSON.stringify(data.user));
         
         // Set default authorization header for future requests
-        axios.defaults.headers.common['Authorization'] = `Bearer ${response.data.access_token}`;
+        axios.defaults.headers.common['Authorization'] = `Bearer ${data.session.access_token}`;
         
         setSuccess('Anmeldung erfolgreich!');
         setTimeout(() => {
-          onLoginSuccess(response.data.user);
+          onLoginSuccess(data.user);
         }, 1000);
       }
     } catch (err) {
-      if (err.response?.status === 401) {
-        setError('Ungültige Anmeldedaten');
-      } else if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
-      } else {
-        setError('Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
-      }
+      setError('Ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.');
     } finally {
       setIsLoading(false);
     }
@@ -76,24 +80,24 @@ const Login = ({ onLoginSuccess }) => {
           </h2>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Username Field */}
+            {/* Email Field */}
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-slate-300 mb-2">
-                Benutzername
+              <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
+                E-Mail
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <User className="h-5 w-5 text-slate-400" />
                 </div>
                 <input
-                  id="username"
-                  name="username"
-                  type="text"
+                  id="email"
+                  name="email"
+                  type="email"
                   required
-                  value={formData.username}
+                  value={formData.email}
                   onChange={handleInputChange}
                   className="w-full pl-10 pr-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-                  placeholder="Benutzername eingeben"
+                  placeholder="E-Mail-Adresse eingeben"
                 />
               </div>
             </div>

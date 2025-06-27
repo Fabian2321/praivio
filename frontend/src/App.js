@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import AITextPlatform from './components/AITextPlatform.js';
 import Login from './components/Login.js';
 import axios from 'axios';
+import { supabase } from './supabaseClient';
 import './App.css';
 
 function App() {
@@ -12,11 +13,19 @@ function App() {
   const [redirectToLogin, setRedirectToLogin] = useState(false);
 
   useEffect(() => {
-    // Immer zuerst abgemeldet starten, aber NICHT localStorage löschen!
-    setIsAuthenticated(false);
-    setUser(null);
-    setIsLoading(false);
-    // Kein automatisches Token-Setzen, kein Auto-Login!
+    // Check for existing Supabase session
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setUser(session.user);
+        setIsAuthenticated(true);
+        // Set token for API requests
+        axios.defaults.headers.common['Authorization'] = `Bearer ${session.access_token}`;
+      }
+      setIsLoading(false);
+    };
+    
+    checkSession();
   }, []);
 
   // Hilfskomponente für geschützte Routen
@@ -32,17 +41,20 @@ function App() {
   const handleLoginSuccess = (userData) => {
     setUser(userData);
     setIsAuthenticated(true);
-    // Nach Login: Token für Axios setzen
-    const token = localStorage.getItem('praivio_token');
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    }
+    // Token is already set in Login component
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('praivio_token');
-    localStorage.removeItem('praivio_user');
+  const handleLogout = async () => {
+    // Sign out from Supabase
+    await supabase.auth.signOut();
+    
+    // Clear local storage
+    localStorage.removeItem('supabaseToken');
+    localStorage.removeItem('supabaseUser');
+    
+    // Clear axios headers
     delete axios.defaults.headers.common['Authorization'];
+    
     setUser(null);
     setIsAuthenticated(false);
     window.location.reload();
