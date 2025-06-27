@@ -12,11 +12,7 @@ const Statistics = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/stats`, {
-        headers: {
-          'Authorization': 'Bearer demo-token'
-        }
-      });
+      const response = await axios.get(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/stats`);
       setStats(response.data);
     } catch (error) {
       console.error('Error fetching statistics:', error);

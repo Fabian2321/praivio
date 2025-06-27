@@ -1,8 +1,7 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from fastapi.responses import FileResponse
 import httpx
 import os
 import logging
@@ -10,7 +9,13 @@ import json
 from datetime import datetime
 import sqlite3
 from pathlib import Path
-from fastapi.responses import FileResponse
+from typing import List, Optional, Dict, Any
+
+# Import our new modules
+from security import SecurityManager, AuditLogger, RateLimiter
+from auth import AuthManager
+from models import *
+from database import DatabaseManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +24,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Praivio API",
     description="API für Praivio - Sichere, lokale KI-Plattform für datensensible Institutionen",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # CORS middleware
@@ -32,121 +37,160 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Security
-security = HTTPBearer()
-
 # Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/app.db")
 
-# Pydantic models
-class TextGenerationRequest(BaseModel):
-    prompt: str
-    model: str = "llama2"
-    max_tokens: int = 1000
-    temperature: float = 0.7
-    template: Optional[str] = None
-    context: Optional[str] = None
+# Initialize managers
+security_manager = SecurityManager(SECRET_KEY)
+db_manager = DatabaseManager()
+auth_manager = AuthManager(security_manager, db_manager)
+audit_logger = AuditLogger(db_manager.get_connection().__enter__())
+rate_limiter = RateLimiter()
 
-class TextGenerationResponse(BaseModel):
-    generated_text: str
-    model_used: str
-    tokens_used: int
-    processing_time: float
-    timestamp: datetime
+# Security
+security = HTTPBearer()
 
-class ModelInfo(BaseModel):
-    name: str
-    size: str
-    parameters: str
-    status: str
-
-class User(BaseModel):
-    username: str
-    role: str
-    organization: str
-
-# Database initialization
-def init_database():
-    """Initialize SQLite database with tables"""
-    db_path = Path("./data")
-    db_path.mkdir(exist_ok=True)
+# Middleware für Request-Logging
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = datetime.now()
     
-    conn = sqlite3.connect("./data/app.db")
-    cursor = conn.cursor()
+    # Log request
+    user_id = None
+    if "authorization" in request.headers:
+        try:
+            token = request.headers["authorization"].replace("Bearer ", "")
+            payload = auth_manager.verify_token(token)
+            if payload:
+                user_id = payload.get('user_id')
+        except:
+            pass
     
-    # Create tables
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            role TEXT NOT NULL,
-            organization TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+    response = await call_next(request)
     
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS text_generations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            prompt TEXT NOT NULL,
-            generated_text TEXT NOT NULL,
-            model_used TEXT NOT NULL,
-            tokens_used INTEGER,
-            processing_time REAL,
-            template_used TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    """)
+    # Log response
+    processing_time = (datetime.now() - start_time).total_seconds()
     
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            action TEXT NOT NULL,
-            details TEXT,
-            ip_address TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    """)
+    audit_logger.log_user_action(
+        user_id=user_id,
+        action="API_REQUEST",
+        details=f"{request.method} {request.url.path} - {response.status_code}",
+        ip_address=request.client.host if request.client else "unknown",
+        success=response.status_code < 400
+    )
     
-    conn.commit()
-    conn.close()
+    return response
 
-# Initialize database on startup
-init_database()
-
-# Dependency for authentication (simplified for MVP)
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
-    """Simple authentication - in production, implement proper JWT validation"""
-    # For MVP, accept any valid token format
-    if not credentials.credentials:
+# Dependency für Rate Limiting
+async def check_rate_limit(request: Request, user: Dict[str, Any] = Depends(auth_manager.get_current_user)):
+    if not rate_limiter.is_allowed(str(user['id']), request.url.path):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded"
         )
-    
-    # Mock user for demo - replace with proper JWT validation
-    return User(username="demo_user", role="admin", organization="demo_clinic")
-
-# Ollama client
-async def get_ollama_client():
-    return httpx.AsyncClient(base_url=OLLAMA_BASE_URL, timeout=60.0)
+    return user
 
 # API Endpoints
-@app.get("/")
+@app.get("/", response_model=HealthCheckResponse)
 async def root():
     """Health check endpoint"""
-    return {
-        "message": "Praivio API",
-        "version": "1.0.0",
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat()
-    }
+    # Check services
+    services = {}
+    
+    # Check database
+    try:
+        db_manager.get_connection().__enter__()
+        services["database"] = "healthy"
+    except:
+        services["database"] = "unhealthy"
+    
+    # Check Ollama
+    try:
+        async with httpx.AsyncClient(base_url=OLLAMA_BASE_URL) as client:
+            response = await client.get("/api/tags")
+            services["ollama"] = "healthy" if response.status_code == 200 else "unhealthy"
+    except:
+        services["ollama"] = "unhealthy"
+    
+    return HealthCheckResponse(
+        status="healthy",
+        version="2.0.0",
+        timestamp=datetime.now(),
+        services=services,
+        database=services.get("database", "unknown"),
+        ollama=services.get("ollama", "unknown")
+    )
+
+@app.post("/auth/login", response_model=TokenResponse)
+async def login(user_credentials: UserLogin, request: Request):
+    """Benutzer-Login"""
+    try:
+        user = auth_manager.authenticate_user(user_credentials.username, user_credentials.password)
+        if not user:
+            audit_logger.log_user_action(
+                user_id=None,
+                action="LOGIN_FAILED",
+                details=f"Failed login attempt for user: {user_credentials.username}",
+                ip_address=request.client.host if request.client else "unknown",
+                success=False
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
+        
+        # Create access token
+        access_token = auth_manager.create_access_token(user)
+        
+        audit_logger.log_user_action(
+            user_id=user['id'],
+            action="LOGIN_SUCCESS",
+            details=f"Successful login for user: {user['username']}",
+            ip_address=request.client.host if request.client else "unknown",
+            success=True
+        )
+        
+        return TokenResponse(
+            access_token=access_token,
+            expires_in=3600,
+            user=UserResponse(**user)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+@app.post("/auth/logout")
+async def logout(request: Request, current_user: Dict[str, Any] = Depends(auth_manager.get_current_user)):
+    """Benutzer-Logout"""
+    try:
+        # Invalidate current session
+        token = request.headers.get("authorization", "").replace("Bearer ", "")
+        if token:
+            # In a real implementation, you would add the token to a blacklist
+            pass
+        
+        audit_logger.log_user_action(
+            user_id=current_user['id'],
+            action="LOGOUT",
+            details=f"User logout: {current_user['username']}",
+            ip_address=request.client.host if request.client else "unknown",
+            success=True
+        )
+        
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
 
 @app.get("/models", response_model=List[ModelInfo])
 async def list_models():
@@ -190,160 +234,224 @@ async def list_models():
 @app.post("/generate", response_model=TextGenerationResponse)
 async def generate_text(
     request: TextGenerationRequest,
-    current_user: User = Depends(get_current_user)
+    api_request: Request,
+    current_user: Dict[str, Any] = Depends(check_rate_limit)
 ):
     """Generate text using local LLM"""
     start_time = datetime.now()
     
     try:
+        # Sanitize input
+        sanitized_prompt = security_manager.sanitize_input(request.prompt)
+        if request.context:
+            sanitized_context = security_manager.sanitize_input(request.context)
+        else:
+            sanitized_context = None
+        
         # Prepare prompt with template if provided
-        prompt = request.prompt
+        prompt = sanitized_prompt
         if request.template:
-            prompt = request.template.format(
-                prompt=request.prompt,
-                context=request.context or ""
-            )
+            templates = await get_templates()
+            if request.template in templates:
+                prompt = templates[request.template] + "\n\n" + sanitized_prompt
+        
+        # Add context if provided
+        if sanitized_context:
+            prompt = f"Context: {sanitized_context}\n\nRequest: {prompt}"
         
         # Call Ollama API
-        async with httpx.AsyncClient(base_url=OLLAMA_BASE_URL, timeout=60.0) as client:
-            payload = {
+        async with httpx.AsyncClient(base_url=OLLAMA_BASE_URL) as client:
+            ollama_request = {
                 "model": request.model,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "num_predict": request.max_tokens,
-                    "temperature": request.temperature
+                    "temperature": request.temperature,
+                    "num_predict": request.max_tokens
                 }
             }
             
-            response = await client.post("/api/generate", json=payload)
+            response = await client.post("/api/generate", json=ollama_request)
             
-            logger.info(f"Ollama response status: {response.status_code}")
-            logger.info(f"Ollama response text: {response.text}")
-            
-            if response.status_code == 200:
-                result = response.json()
-                generated_text = result.get("response", "")
-                tokens_used = result.get("eval_count", 0)
-                
-                processing_time = (datetime.now() - start_time).total_seconds()
-                
-                # Log generation for audit
-                conn = sqlite3.connect("./data/app.db")
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO text_generations 
-                    (user_id, prompt, generated_text, model_used, tokens_used, processing_time, template_used)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (1, request.prompt, generated_text, request.model, tokens_used, processing_time, request.template))
-                conn.commit()
-                conn.close()
-                
-                return TextGenerationResponse(
-                    generated_text=generated_text,
-                    model_used=request.model,
-                    tokens_used=tokens_used,
-                    processing_time=processing_time,
-                    timestamp=datetime.now()
-                )
-            else:
+            if response.status_code != 200:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"LLM generation failed: {response.text}"
+                    detail="LLM service error"
                 )
-                
-    except httpx.ReadTimeout as e:
-        logger.error(f"Ollama timeout error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Text generation timed out. Please try again with a shorter prompt or different model."
+            
+            result = response.json()
+            generated_text = result.get("response", "")
+            tokens_used = result.get("eval_count", 0)
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        # Save to database
+        generation_id = db_manager.save_text_generation(
+            user_id=current_user['id'],
+            prompt=sanitized_prompt,
+            generated_text=generated_text,
+            model_used=request.model,
+            tokens_used=tokens_used,
+            processing_time=processing_time,
+            template_used=request.template,
+            context=sanitized_context
         )
+        
+        # Log audit event
+        audit_logger.log_user_action(
+            user_id=current_user['id'],
+            action="TEXT_GENERATION",
+            details=f"Generated text using model {request.model}, {tokens_used} tokens",
+            ip_address=api_request.client.host if api_request.client else "unknown",
+            success=True
+        )
+        
+        return TextGenerationResponse(
+            id=generation_id,
+            generated_text=generated_text,
+            model_used=request.model,
+            tokens_used=tokens_used,
+            processing_time=processing_time,
+            template_used=request.template,
+            created_at=datetime.now()
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error in text generation: {e}")
-        logger.error(f"Full error details: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(f"Text generation error: {e}")
+        
+        # Log failed generation
+        audit_logger.log_user_action(
+            user_id=current_user['id'],
+            action="TEXT_GENERATION_FAILED",
+            details=f"Failed to generate text: {str(e)}",
+            ip_address=api_request.client.host if api_request.client else "unknown",
+            success=False
+        )
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
+            detail="Text generation failed"
         )
 
 @app.get("/templates")
 async def get_templates():
-    """Get available text templates for different use cases"""
+    """Get available templates"""
     templates = {
         "medical": {
-            "arztbericht": "Patient: {context}\n\nBefund: {prompt}\n\nArztbericht:",
-            "befundvorlage": "Untersuchung: {context}\n\nErgebnis: {prompt}\n\nBefund:",
-            "anamnese": "Patientendaten: {context}\n\nAnamnese: {prompt}\n\nDokumentation:"
+            "arztbericht": "Erstelle einen strukturierten Arztbericht basierend auf den folgenden Informationen:",
+            "befund": "Formuliere einen medizinischen Befund für:",
+            "anamnese": "Erstelle eine strukturierte Anamnese für:",
+            "entlassungsbrief": "Verfasse einen Entlassungsbrief für:"
         },
         "legal": {
-            "vertragsanalyse": "Vertragstext: {context}\n\nAnalyseauftrag: {prompt}\n\nAnalyse:",
-            "textentwurf": "Anforderungen: {context}\n\nEntwurf für: {prompt}\n\nText:",
-            "dokumentenprüfung": "Dokument: {context}\n\nPrüfauftrag: {prompt}\n\nPrüfung:"
+            "vertragsanalyse": "Analysiere den folgenden Vertrag und erstelle eine Zusammenfassung der wichtigsten Punkte:",
+            "rechtsgutachten": "Erstelle ein Rechtsgutachten zu folgendem Sachverhalt:",
+            "klageschrift": "Verfasse eine Klageschrift für:",
+            "vertragsentwurf": "Erstelle einen Vertragsentwurf für:"
         },
         "government": {
-            "bericht": "Sachverhalt: {context}\n\nBerichtauftrag: {prompt}\n\nBericht:",
-            "protokoll": "Sitzung: {context}\n\nProtokollierung: {prompt}\n\nProtokoll:",
-            "dokumentation": "Vorgang: {context}\n\nDokumentation: {prompt}\n\nDokument:"
+            "bericht": "Erstelle einen behördlichen Bericht zu:",
+            "protokoll": "Verfasse ein Protokoll zu:",
+            "entscheidung": "Formuliere eine behördliche Entscheidung zu:",
+            "dokumentation": "Erstelle eine Dokumentation zu:"
         }
     }
     return templates
 
-@app.get("/stats")
-async def get_statistics(current_user: User = Depends(get_current_user)):
-    """Get usage statistics"""
+@app.get("/stats", response_model=StatisticsResponse)
+async def get_statistics(current_user: Dict[str, Any] = Depends(auth_manager.get_current_user)):
+    """Get system statistics"""
     try:
-        conn = sqlite3.connect("./data/app.db")
-        cursor = conn.cursor()
+        stats = db_manager.get_statistics(current_user['id'])
         
-        # Total generations
-        cursor.execute("SELECT COUNT(*) FROM text_generations")
-        total_generations = cursor.fetchone()[0]
+        # Get additional stats
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Average processing time
+            cursor.execute("""
+                SELECT AVG(processing_time) FROM text_generations 
+                WHERE user_id = ?
+            """, (current_user['id'],))
+            avg_time = cursor.fetchone()[0]
+            
+            # Most used model
+            cursor.execute("""
+                SELECT model_used, COUNT(*) as count 
+                FROM text_generations 
+                WHERE user_id = ?
+                GROUP BY model_used 
+                ORDER BY count DESC 
+                LIMIT 1
+            """, (current_user['id'],))
+            model_result = cursor.fetchone()
+            
+            # Most used template
+            cursor.execute("""
+                SELECT template_used, COUNT(*) as count 
+                FROM text_generations 
+                WHERE user_id = ? AND template_used IS NOT NULL
+                GROUP BY template_used 
+                ORDER BY count DESC 
+                LIMIT 1
+            """, (current_user['id'],))
+            template_result = cursor.fetchone()
         
-        # Total tokens used
-        cursor.execute("SELECT SUM(tokens_used) FROM text_generations")
-        total_tokens = cursor.fetchone()[0] or 0
-        
-        # Average processing time
-        cursor.execute("SELECT AVG(processing_time) FROM text_generations")
-        avg_processing_time = cursor.fetchone()[0] or 0
-        
-        # Most used models
-        cursor.execute("""
-            SELECT model_used, COUNT(*) as count 
-            FROM text_generations 
-            GROUP BY model_used 
-            ORDER BY count DESC
-        """)
-        model_usage = cursor.fetchall()
-        
-        conn.close()
-        
-        return {
-            "total_generations": total_generations,
-            "total_tokens_used": total_tokens,
-            "average_processing_time": round(avg_processing_time, 2),
-            "model_usage": [{"model": model, "count": count} for model, count in model_usage]
-        }
+        return StatisticsResponse(
+            total_generations=stats['total_generations'],
+            total_tokens=stats['total_tokens'],
+            active_users=stats['active_users'],
+            audit_events_today=stats['audit_events_today'],
+            average_processing_time=avg_time,
+            most_used_model=model_result[0] if model_result else None,
+            most_used_template=template_result[0] if template_result else None
+        )
         
     except Exception as e:
-        logger.error(f"Error getting statistics: {e}")
+        logger.error(f"Statistics error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve statistics"
+            detail="Failed to get statistics"
+        )
+
+@app.get("/audit-logs", response_model=List[AuditLogResponse])
+async def get_audit_logs(
+    limit: int = 100,
+    current_user: Dict[str, Any] = Depends(auth_manager.require_permission("admin"))
+):
+    """Get audit logs (admin only)"""
+    try:
+        logs = db_manager.get_audit_logs(limit=limit)
+        return [AuditLogResponse(**log) for log in logs]
+    except Exception as e:
+        logger.error(f"Audit logs error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get audit logs"
+        )
+
+@app.get("/user/generations", response_model=List[TextGenerationResponse])
+async def get_user_generations(
+    limit: int = 50,
+    current_user: Dict[str, Any] = Depends(auth_manager.get_current_user)
+):
+    """Get user's text generations"""
+    try:
+        generations = db_manager.get_user_generations(current_user['id'], limit)
+        return [TextGenerationResponse(**gen) for gen in generations]
+    except Exception as e:
+        logger.error(f"User generations error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user generations"
         )
 
 @app.get("/favicon.ico")
 async def favicon():
-    favicon_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "public", "favicon.ico")
-    favicon_path = os.path.abspath(favicon_path)
-    if os.path.exists(favicon_path):
-        return FileResponse(favicon_path)
-    else:
-        # Return 204 No Content if not found
-        from fastapi import Response
-        return Response(status_code=204)
+    """Serve favicon"""
+    return FileResponse("favicon.ico")
 
 if __name__ == "__main__":
     import uvicorn

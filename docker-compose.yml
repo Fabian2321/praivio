@@ -10,7 +10,7 @@ services:
     ports:
       - "3001:3000"
     environment:
-      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_API_URL=http://backend:8000
       - REACT_APP_OLLAMA_URL=http://localhost:11434
       - REACT_APP_TITLE=Praivio
     depends_on:

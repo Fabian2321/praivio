@@ -47,6 +47,12 @@ check_requirements() {
         exit 1
     fi
     
+    # Python prüfen
+    if ! command -v python3 &> /dev/null; then
+        print_error "Python 3 ist nicht installiert. Bitte installieren Sie Python 3 zuerst."
+        exit 1
+    fi
+    
     # NVIDIA GPU prüfen (optional)
     if command -v nvidia-smi &> /dev/null; then
         print_success "NVIDIA GPU gefunden - GPU-Beschleunigung verfügbar"
@@ -104,7 +110,7 @@ check_services() {
     print_status "Prüfe Service-Status..."
     
     # Warte auf Services
-    sleep 10
+    sleep 15
     
     # Backend prüfen
     if curl -s http://localhost:8000/ > /dev/null; then
@@ -122,7 +128,7 @@ check_services() {
     fi
     
     # Frontend prüfen
-    if curl -s http://localhost:3000 > /dev/null; then
+    if curl -s http://localhost:3001 > /dev/null; then
         print_success "Frontend ist erreichbar"
     else
         print_warning "Frontend ist noch nicht erreichbar (wird noch gestartet)"
@@ -148,37 +154,70 @@ download_default_model() {
     print_success "Standard-Modell geladen"
 }
 
+# Erstelle Admin-Benutzer
+create_admin_user() {
+    print_status "Erstelle Administrator-Benutzer..."
+    
+    # Prüfe ob Python-Script existiert
+    if [ ! -f "scripts/create_admin.py" ]; then
+        print_warning "Admin-Erstellung-Script nicht gefunden, überspringe Benutzer-Erstellung"
+        return
+    fi
+    
+    # Setze Umgebungsvariablen
+    export SECRET_KEY=$(grep SECRET_KEY .env | cut -d '=' -f2)
+    
+    # Führe Admin-Erstellung aus
+    cd scripts
+    python3 create_admin.py
+    cd ..
+    
+    print_success "Admin-Benutzer erstellt (falls gewünscht)"
+}
+
 # Zeige Informationen
 show_info() {
     echo ""
     echo "🎉 Setup abgeschlossen!"
     echo ""
     echo "📋 Zugangsdaten:"
-    echo "   Frontend: http://localhost:3000"
+    echo "   Frontend: http://localhost:3001"
     echo "   Backend API: http://localhost:8000"
     echo "   Ollama API: http://localhost:11434"
     echo ""
     echo "🔒 Sicherheit:"
+    echo "   - JWT-basierte Authentifizierung"
+    echo "   - Verschlüsselte Passwort-Hashes"
+    echo "   - Input-Validation und Sanitization"
+    echo "   - Audit-Logging für Compliance"
+    echo "   - Rate Limiting für API-Endpunkte"
     echo "   - 100% lokale Verarbeitung"
-    echo "   - Keine Cloud-Anbindung"
     echo "   - DSGVO-konform"
     echo ""
     echo "📚 Nächste Schritte:"
-    echo "   1. Öffnen Sie http://localhost:3000 im Browser"
-    echo "   2. Laden Sie ein Modell in der Modell-Verwaltung"
-    echo "   3. Starten Sie mit der Textgenerierung"
+    echo "   1. Öffnen Sie http://localhost:3001 im Browser"
+    echo "   2. Melden Sie sich mit Ihren Admin-Zugangsdaten an"
+    echo "   3. Laden Sie ein Modell in der Modell-Verwaltung"
+    echo "   4. Starten Sie mit der Textgenerierung"
     echo ""
     echo "🛠️  Verwaltung:"
     echo "   Starten: docker-compose up -d"
     echo "   Stoppen: docker-compose down"
     echo "   Logs: docker-compose logs -f"
+    echo "   Admin erstellen: python3 scripts/create_admin.py"
+    echo ""
+    echo "🔧 Sicherheitshinweise:"
+    echo "   - Ändern Sie den SECRET_KEY in der .env-Datei"
+    echo "   - Verwenden Sie starke Passwörter"
+    echo "   - Regelmäßige Backups der Datenbank"
+    echo "   - Überwachen Sie die Audit-Logs"
     echo ""
 }
 
 # Hauptfunktion
 main() {
-    echo "🔐 Lokale KI-Plattform Setup"
-    echo "================================"
+    echo "🔐 Lokale KI-Plattform Setup - Phase 1: Sicherheit"
+    echo "=================================================="
     echo ""
     
     check_requirements
@@ -187,6 +226,7 @@ main() {
     start_services
     check_services
     download_default_model
+    create_admin_user
     show_info
 }
 

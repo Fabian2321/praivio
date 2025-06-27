@@ -2,8 +2,9 @@
 // Modern replacement for the current TextGenerator component
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Cpu, Check, FileText, Search, Filter, Copy, Download, Loader2, CheckCircle, Sparkles, Settings, Info, Clock, Trash2, History, BarChart3, Zap, TrendingUp, Activity, User, Menu, X } from 'lucide-react';
+import { ChevronDown, Cpu, Check, FileText, Search, Filter, Copy, Download, Loader2, CheckCircle, Sparkles, Settings, Info, Clock, Trash2, History, BarChart3, Zap, TrendingUp, Activity, User, Menu, X, Users, LogOut } from 'lucide-react';
 import axios from 'axios';
+import UserManagement from './UserManagement';
 
 // ===== UTILITY FUNCTIONS =====
 const formatNumber = (num) => {
@@ -410,7 +411,7 @@ function SettingsPanel({ settings, onSettingsChange }) {
           <div className="p-2 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg">
             <Settings className="w-5 h-5 text-white" />
           </div>
-          <span className="text-white font-semibold">Generierungseinstellungen</span>
+          <span className="text-white font-semibold">Einstellungen</span>
         </div>
         <ChevronDown
           className={`w-5 h-5 text-slate-400 transform transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
@@ -675,7 +676,62 @@ function Statistics({ statistics }) {
   )
 }
 
-export default function AITextPlatform() {
+// TestDropdown: Minimal funktionierendes Avatar-Menü
+function TestDropdown() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (ref.current && !ref.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', zIndex: 1000, margin: 32 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          background: '#222',
+          color: '#fff',
+          border: 'none',
+          borderRadius: 8,
+          padding: 12,
+          cursor: 'pointer',
+          fontSize: 16
+        }}
+      >
+        <User className="w-5 h-5" />
+        <span style={{ marginLeft: 8 }}>Avatar-Menü</span>
+        <ChevronDown className="w-4 h-4 ml-2" />
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute',
+          right: 0,
+          top: 48,
+          background: '#222',
+          color: '#fff',
+          borderRadius: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+          padding: 16,
+          zIndex: 1001
+        }}>
+          <div style={{ marginBottom: 8, cursor: 'pointer' }}>Benutzerverwaltung</div>
+          <div style={{ cursor: 'pointer' }}>Abmelden</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function AITextPlatform({ user, onLogout }) {
   const [selectedModel, setSelectedModel] = useState({
     id: "tinyllama",
     name: "tinyllama",
@@ -697,6 +753,24 @@ export default function AITextPlatform() {
     frequencyPenalty: 0,
     presencePenalty: 0,
   })
+  const [activePage, setActivePage] = useState('dashboard');
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef(null);
+
+  // Click-away handler für das User-Menü
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setShowUserMenu(false);
+      }
+    }
+    if (showUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showUserMenu]);
 
   // Fetch models and templates on component mount
   useEffect(() => {
@@ -745,10 +819,6 @@ export default function AITextPlatform() {
         temperature: settings.temperature,
         template: null,
         context
-      }, {
-        headers: {
-          'Authorization': 'Bearer demo-token'
-        }
       });
 
       const result = response.data.generated_text;
@@ -794,101 +864,127 @@ export default function AITextPlatform() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-sm border-b-2 border-slate-700">
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl shadow-lg">
-              <Sparkles className="w-7 h-7 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Praivio</h1>
-              <p className="text-slate-300 text-sm font-medium">Sichere, lokale KI-Plattform</p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <button
-              className="lg:hidden p-3 bg-slate-800 border-2 border-slate-700 rounded-lg hover:border-purple-500 transition-colors card-shadow"
-              onClick={() => setIsMobileMenuOpen(true)}
-            >
-              <Menu className="w-5 h-5 text-white" />
-            </button>
-            <div className="hidden lg:flex items-center space-x-3 p-3 bg-slate-800 border-2 border-slate-700 rounded-xl card-shadow">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
-                <User className="w-5 h-5 text-white" />
+    <div className="flex min-h-screen">
+      <main className="flex-1 bg-slate-950 p-6">
+        <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-sm border-b-2 border-slate-700">
+          <div className="flex items-center justify-between p-4">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl shadow-lg">
+                <Sparkles className="w-7 h-7 text-white" />
               </div>
               <div>
-                <p className="text-white text-sm font-semibold">Praivio Benutzer</p>
-                <div className="flex items-center space-x-1">
-                  <Zap className="w-3 h-3 text-yellow-400" />
-                  <p className="text-yellow-300 text-xs font-medium">Lokale Installation</p>
-                </div>
+                <h1 className="text-2xl font-bold text-white">Praivio</h1>
+                <p className="text-slate-300 text-sm font-medium">Sichere, lokale KI-Plattform</p>
               </div>
             </div>
-          </div>
-        </div>
-      </header>
-
-      <div className="flex h-[calc(100vh-88px)]">
-        {/* Left Sidebar */}
-        <aside
-          className={`w-80 bg-slate-900/95 border-r-2 border-slate-700 p-6 space-y-6 overflow-y-auto ${isMobileMenuOpen ? "fixed inset-0 z-50 lg:relative" : "hidden lg:block"}`}
-        >
-          {isMobileMenuOpen && (
-            <button
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="lg:hidden absolute top-4 right-4 p-2 bg-slate-800 border border-slate-600 rounded-lg hover:border-red-500 transition-colors"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-          )}
-
-          <ModelSelector selectedModel={selectedModel} onModelSelect={setSelectedModel} models={models} />
-
-          <div>
-            <h2 className="text-white font-semibold text-lg mb-4 flex items-center space-x-2">
-              <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-              <span>Vorlagen</span>
-            </h2>
-            <TemplateSystem onTemplateSelect={handleTemplateSelect} templates={templates} />
-          </div>
-
-          <SettingsPanel settings={settings} onSettingsChange={setSettings} />
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6 overflow-y-auto bg-slate-800/30">
-          <div className="max-w-4xl mx-auto">
-            <div className="mb-8 bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
-              <h2 className="text-3xl font-bold text-white mb-2 flex items-center space-x-3">
-                <Sparkles className="w-8 h-8 text-purple-400" />
-                <span>Text Generieren</span>
-              </h2>
-              <p className="text-slate-300 font-medium">Erstellen Sie professionelle Inhalte mit KI-gestützter Textgenerierung</p>
+            <div className="flex items-center space-x-4 relative ml-auto">
+              <button
+                className="lg:hidden p-3 bg-slate-800 border-2 border-slate-700 rounded-lg hover:border-purple-500 transition-colors card-shadow"
+                onClick={() => setIsMobileMenuOpen(true)}
+              >
+                <Menu className="w-5 h-5 text-white" />
+              </button>
+              <button
+                ref={userMenuRef}
+                type="button"
+                className="hidden lg:flex items-center space-x-3 p-3 bg-slate-800 border-2 border-slate-700 rounded-xl card-shadow cursor-pointer relative select-none"
+                style={{ cursor: 'pointer', zIndex: 50 }}
+                onClick={() => setShowUserMenu((v) => !v)}
+                aria-haspopup="true"
+                aria-expanded={showUserMenu}
+                tabIndex={0}
+              >
+                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
+                  <User className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-white text-sm font-semibold">{user.username || 'Praivio Benutzer'}</p>
+                  <div className="flex items-center space-x-1">
+                    <Zap className="w-3 h-3 text-yellow-400" />
+                    <p className="text-yellow-300 text-xs font-medium">Lokale Installation</p>
+                  </div>
+                </div>
+                <ChevronDown className="w-4 h-4 text-slate-400 ml-2" />
+              </button>
+              {showUserMenu && (
+                <div
+                  className="absolute right-0 top-14 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50"
+                  style={{ zIndex: 1000 }}
+                >
+                  <div className="p-4 border-b border-slate-700">
+                    <p className="text-white font-semibold">{user.username}</p>
+                    <p className="text-slate-400 text-xs">{user.role_name}</p>
+                  </div>
+                  {user.role_name === 'admin' && (
+                    <button
+                      className="w-full flex items-center px-4 py-3 text-left text-slate-200 hover:bg-slate-700 transition-colors"
+                      onClick={() => {
+                        setActivePage('users');
+                        setShowUserMenu(false);
+                      }}
+                    >
+                      <Users className="w-4 h-4 mr-2" />
+                      Benutzerverwaltung
+                    </button>
+                  )}
+                  <button
+                    className="w-full flex items-center px-4 py-3 text-left text-slate-200 hover:bg-slate-700 transition-colors"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      localStorage.removeItem('praivio_token');
+                      localStorage.removeItem('praivio_user');
+                      delete axios.defaults.headers.common['Authorization'];
+                      window.location.href = '/login';
+                    }}
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Abmelden
+                  </button>
+                </div>
+              )}
             </div>
-
-            <TextGenerator onGenerate={handleGenerate} isGenerating={isGenerating} />
           </div>
-        </main>
+        </header>
 
-        {/* Right Sidebar */}
-        <aside className="hidden xl:block w-80 bg-slate-900/95 border-l-2 border-slate-700 p-6 space-y-6 overflow-y-auto">
-          <HistoryPanel
-            generations={generations}
-            onGenerationSelect={handleGenerationSelect}
-            onGenerationDelete={handleGenerationDelete}
-          />
+        <div className="flex h-[calc(100vh-88px)]">
+          {/* Linke Sidebar: Modell, Vorlagen, Einstellungen */}
+          <aside className="hidden xl:block w-80 h-screen bg-slate-900/95 border-r-2 border-slate-700 p-6 space-y-6 overflow-y-auto">
+            <ModelSelector selectedModel={selectedModel} onModelSelect={setSelectedModel} models={models} />
+            <TemplateSystem onTemplateSelect={handleTemplateSelect} templates={templates} />
+            <SettingsPanel settings={settings} onSettingsChange={setSettings} />
+          </aside>
 
-          <Statistics statistics={mockStatistics} />
-        </aside>
-      </div>
+          {/* Hauptbereich */}
+          <main className="flex-1 p-6 overflow-y-auto bg-slate-800/30">
+            <div className="max-w-4xl mx-auto">
+              <div className="mb-8 bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
+                <h2 className="text-3xl font-bold text-white mb-2 flex items-center space-x-3">
+                  <Sparkles className="w-8 h-8 text-purple-400" />
+                  <span>Text Generieren</span>
+                </h2>
+                <p className="text-slate-300 font-medium">Erstellen Sie professionelle Inhalte mit KI-gestützter Textgenerierung</p>
+              </div>
 
-      {/* Mobile overlay */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
-      )}
+              <TextGenerator onGenerate={handleGenerate} isGenerating={isGenerating} />
+            </div>
+          </main>
+
+          {/* Rechte Sidebar bleibt erhalten */}
+          <aside className="hidden xl:block w-80 bg-slate-900/95 border-l-2 border-slate-700 p-6 space-y-6 overflow-y-auto">
+            <HistoryPanel
+              generations={generations}
+              onGenerationSelect={handleGenerationSelect}
+              onGenerationDelete={handleGenerationDelete}
+            />
+
+            <Statistics statistics={mockStatistics} />
+          </aside>
+        </div>
+
+        {isMobileMenuOpen && (
+          <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
+        )}
+      </main>
     </div>
   )
 }

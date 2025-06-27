@@ -1,319 +1,152 @@
-import React, { useState, useEffect } from 'react';
-import { Send, Download, Copy, RotateCcw, Shield, Brain, FileText, Sparkles, Zap } from 'lucide-react';
-import axios from 'axios';
+import React, { useState, useRef } from 'react';
+import { CheckCircle, Copy, Download, Loader2, RotateCcw, Shield, Brain, FileText, Sparkles, Zap } from 'lucide-react';
 
-const TextGenerator = () => {
-  const [prompt, setPrompt] = useState('');
-  const [context, setContext] = useState('');
-  const [generatedText, setGeneratedText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('tinyllama');
-  const [selectedTemplate, setSelectedTemplate] = useState('');
-  const [models, setModels] = useState([]);
-  const [templates, setTemplates] = useState({});
-  const [temperature, setTemperature] = useState(0.7);
-  const [maxTokens, setMaxTokens] = useState(1000);
+// Die Komponente erwartet Props: onGenerate(prompt, context) und isGenerating
+export default function TextGenerator({ onGenerate, isGenerating }) {
+  const [prompt, setPrompt] = useState("");
+  const [context, setContext] = useState("");
+  const [generatedText, setGeneratedText] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
+  const textareaRef = useRef(null);
 
-  useEffect(() => {
-    fetchModels();
-    fetchTemplates();
-  }, []);
-
-  const fetchModels = async () => {
+  const handleGenerate = async () => {
+    if (!prompt.trim() || isGenerating) return;
     try {
-      const response = await axios.get(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/models`);
-      setModels(response.data);
-      if (response.data.length > 0) {
-        setSelectedModel(response.data[0].name);
-      }
+      const result = await onGenerate(prompt, context);
+      setGeneratedText(result);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2000);
     } catch (error) {
-      console.error('Error fetching models:', error);
+      console.error("Generation failed:", error);
     }
   };
 
-  const fetchTemplates = async () => {
+  const handleCopy = async () => {
     try {
-      const response = await axios.get(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/templates`);
-      setTemplates(response.data);
-    } catch (error) {
-      console.error('Error fetching templates:', error);
-    }
+      await navigator.clipboard.writeText(generatedText);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2000);
+    } catch {}
   };
 
-  const generateText = async () => {
-    if (!prompt.trim()) return;
-
-    setIsLoading(true);
-    try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/generate`, {
-        prompt,
-        model: selectedModel,
-        max_tokens: maxTokens,
-        temperature,
-        template: selectedTemplate,
-        context
-      }, {
-        headers: {
-          'Authorization': 'Bearer demo-token'
-        }
-      });
-
-      setGeneratedText(response.data.generated_text);
-    } catch (error) {
-      console.error('Error generating text:', error);
-      alert('Fehler bei der Textgenerierung. Bitte versuchen Sie es erneut.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(generatedText);
-  };
-
-  const downloadText = () => {
-    const blob = new Blob([generatedText], { type: 'text/plain' });
+  const handleExport = (format) => {
+    const filename = `generated-text.${format}`;
+    const blob = new Blob([generatedText], { type: format === "txt" ? "text/plain" : "application/pdf" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `generated-text-${new Date().toISOString().split('T')[0]}.txt`;
+    a.download = filename;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
+  const handleKeyDown = (e) => {
+    if (e.ctrlKey && e.key === "Enter") {
+      e.preventDefault();
+      handleGenerate();
+    }
+  };
+
   const resetForm = () => {
-    setPrompt('');
-    setContext('');
-    setGeneratedText('');
-    setSelectedTemplate('');
+    setPrompt("");
+    setContext("");
+    setGeneratedText("");
   };
 
   return (
-    <div className="max-w-7xl mx-auto fade-in">
-      {/* Header Section */}
-      <div className="mb-8 text-center">
-        <div className="inline-flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl flex items-center justify-center">
-            <Sparkles className="w-6 h-6 text-white" />
+    <div className="space-y-6">
+      <div className="space-y-6">
+        <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
+          <label className="block text-white font-semibold text-lg mb-3">Anfrage</label>
+          <textarea
+            ref={textareaRef}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Geben Sie Ihre Anfrage hier ein... (Strg+Enter zum Generieren)"
+            className="w-full h-32 p-4 bg-slate-900 border-2 border-slate-600 rounded-lg text-white placeholder-slate-400 resize-none focus:border-purple-500 focus:outline-none transition-colors font-mono"
+          />
+          <div className="flex justify-between items-center mt-3">
+            <span className="text-slate-300 text-sm font-medium">{prompt.length} Zeichen</span>
+            <span className="text-slate-400 text-xs bg-slate-700 px-2 py-1 rounded border border-slate-600">
+              Strg+Enter zum Generieren
+            </span>
           </div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-            Praivio
-          </h1>
         </div>
-        <p className="text-lg text-white/90 flex items-center justify-center gap-2">
-          <Shield className="w-5 h-5 text-green-400" />
-          100% lokal verarbeitet - Ihre Daten bleiben sicher
-        </p>
+
+        <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
+          <label className="block text-white font-semibold text-lg mb-3">Kontext (Optional)</label>
+          <textarea
+            value={context}
+            onChange={(e) => setContext(e.target.value)}
+            placeholder="Zusätzliche Informationen oder Anweisungen..."
+            className="w-full h-20 p-4 bg-slate-900 border-2 border-slate-600 rounded-lg text-white placeholder-slate-400 resize-none focus:border-purple-500 focus:outline-none transition-colors font-mono"
+          />
+        </div>
+
+        <button
+          onClick={handleGenerate}
+          disabled={!prompt.trim() || isGenerating}
+          className="w-full p-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-slate-600 disabled:to-slate-700 text-white font-semibold text-lg rounded-xl transition-all duration-200 flex items-center justify-center space-x-3 disabled:cursor-not-allowed border-2 border-purple-500 hover:border-purple-400 disabled:border-slate-600 card-shadow-lg"
+        >
+          {isGenerating ? (
+            <>
+              <Loader2 className="w-6 h-6 animate-spin" />
+              <span>Generiere...</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-6 h-6" />
+              <span>Text Generieren</span>
+            </>
+          )}
+        </button>
+        <button
+          onClick={resetForm}
+          className="w-full mt-2 p-4 border-2 border-gray-300 rounded-xl hover:bg-gray-50 flex items-center gap-3 font-semibold transition-all duration-200"
+        >
+          <RotateCcw className="w-5 h-5" />
+          Zurücksetzen
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Input Section */}
-        <div className="space-y-6">
-          <div className="modern-card p-8">
-            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-3 text-gray-800">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Brain className="w-5 h-5 text-blue-600" />
-              </div>
-              Eingabe
-            </h2>
-
-            {/* Model Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                KI-Modell
-              </label>
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="modern-input w-full"
-              >
-                {(Array.isArray(models) ? models : []).map((model) => (
-                  <option key={model.name} value={model.name}>
-                    {model.name} ({model.parameters}) - {model.size}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Template Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Vorlage (optional)
-              </label>
-              <select
-                value={selectedTemplate}
-                onChange={(e) => setSelectedTemplate(e.target.value)}
-                className="modern-input w-full"
-              >
-                <option value="">Keine Vorlage</option>
-                {templates && typeof templates === 'object' && Object.entries(templates).map(([category, categoryTemplates]) => (
-                  <optgroup key={category} label={category.charAt(0).toUpperCase() + category.slice(1)}>
-                    {categoryTemplates && typeof categoryTemplates === 'object' && Object.entries(categoryTemplates).map(([key, template]) => (
-                      <option key={key} value={template}>
-                        {key.charAt(0).toUpperCase() + key.slice(1)}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-
-            {/* Context Input */}
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Kontext (optional)
-              </label>
-              <textarea
-                value={context}
-                onChange={(e) => setContext(e.target.value)}
-                placeholder="Zusätzliche Informationen oder Kontext..."
-                className="modern-input w-full resize-none"
-                rows={3}
-              />
-            </div>
-
-            {/* Prompt Input */}
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Anfrage *
-              </label>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Beschreiben Sie, was Sie generieren möchten..."
-                className="modern-input w-full resize-none"
-                rows={4}
-                required
-              />
-            </div>
-
-            {/* Parameters */}
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Temperatur: {temperature}
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Max. Tokens: {maxTokens}
-                </label>
-                <input
-                  type="range"
-                  min="100"
-                  max="2000"
-                  step="100"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                />
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-4">
+      {generatedText && (
+        <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-semibold text-lg flex items-center space-x-2">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              <span>Generierter Text</span>
+            </h3>
+            <div className="flex items-center space-x-3">
+              {showSuccess && (
+                <div className="flex items-center space-x-2 text-green-400 bg-green-900/30 px-3 py-1 rounded-lg border border-green-600">
+                  <CheckCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium">Erfolgreich!</span>
+                </div>
+              )}
               <button
-                onClick={generateText}
-                disabled={isLoading || !prompt.trim()}
-                className="btn-gradient flex-1 px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                onClick={handleCopy}
+                className="p-2.5 bg-slate-700 border-2 border-slate-600 rounded-lg hover:border-purple-500 hover:bg-slate-600 transition-all duration-200 focus-ring"
+                title="In Zwischenablage kopieren"
               >
-                {isLoading ? (
-                  <>
-                    <div className="loading-spinner"></div>
-                    Generiere...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-5 h-5" />
-                    Generieren
-                  </>
-                )}
+                <Copy className="w-4 h-4 text-slate-300" />
               </button>
               <button
-                onClick={resetForm}
-                className="px-6 py-3 border-2 border-gray-300 rounded-xl hover:bg-gray-50 flex items-center gap-3 font-semibold transition-all duration-200"
+                onClick={() => handleExport("txt")}
+                className="p-2.5 bg-slate-700 border-2 border-slate-600 rounded-lg hover:border-purple-500 hover:bg-slate-600 transition-all duration-200 focus-ring"
+                title="Als TXT herunterladen"
               >
-                <RotateCcw className="w-5 h-5" />
-                Zurücksetzen
+                <Download className="w-4 h-4 text-slate-300" />
               </button>
             </div>
           </div>
-        </div>
-
-        {/* Output Section */}
-        <div className="space-y-6">
-          <div className="modern-card p-8">
-            <h2 className="text-2xl font-semibold mb-6 flex items-center gap-3 text-gray-800">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-5 h-5 text-green-600" />
-              </div>
-              Generierter Text
-            </h2>
-
-            {generatedText ? (
-              <>
-                <div className="bg-gray-50 rounded-xl p-6 mb-6 border border-gray-200">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono leading-relaxed">
-                    {generatedText}
-                  </pre>
-                </div>
-
-                <div className="flex gap-4">
-                  <button
-                    onClick={copyToClipboard}
-                    className="btn-gradient flex-1 px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-3"
-                  >
-                    <Copy className="w-5 h-5" />
-                    Kopieren
-                  </button>
-                  <button
-                    onClick={downloadText}
-                    className="btn-gradient flex-1 px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-3"
-                  >
-                    <Download className="w-5 h-5" />
-                    Herunterladen
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="text-center py-16 text-gray-500">
-                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <FileText className="w-10 h-10 text-gray-400" />
-                </div>
-                <p className="text-lg font-medium mb-2">Bereit für die Generierung</p>
-                <p className="text-sm">Geben Sie eine Anfrage ein und klicken Sie auf "Generieren"</p>
-              </div>
-            )}
-          </div>
-
-          {/* Security Info */}
-          <div className="modern-card p-6 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Shield className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-green-800 text-lg mb-2">Datensicherheit</h3>
-                <p className="text-green-700 leading-relaxed">
-                  Alle Daten werden lokal verarbeitet und verlassen niemals Ihr System. 
-                  Keine Cloud-Anbindung erforderlich. Ihre Privatsphäre steht an erster Stelle.
-                </p>
-              </div>
-            </div>
+          <div className="bg-slate-900 border-2 border-slate-600 rounded-lg p-4">
+            <pre className="text-slate-200 whitespace-pre-wrap font-mono text-sm leading-relaxed">{generatedText}</pre>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
-};
-
-export default TextGenerator; 
+} 
