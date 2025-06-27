@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, Clock, Hash, Brain } from 'lucide-react';
+import { BarChart3, TrendingUp, Clock, Hash, Brain, Target, Calendar, FileText } from 'lucide-react';
 import axios from 'axios';
 
 const Statistics = () => {
@@ -82,6 +82,33 @@ const Statistics = () => {
         <div className="bg-white rounded-lg shadow-sm border p-6">
           <div className="flex items-center justify-between">
             <div>
+              <p className="text-sm font-medium text-gray-600">Erfolgsrate</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.success_rate}%</p>
+            </div>
+            <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center">
+              <Target className="w-6 h-6 text-emerald-600" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Heute</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.generations_today}</p>
+            </div>
+            <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+              <Calendar className="w-6 h-6 text-orange-600" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Performance Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="flex items-center justify-between">
+            <div>
               <p className="text-sm font-medium text-gray-600">Durchschn. Zeit</p>
               <p className="text-2xl font-bold text-gray-900">{stats.average_processing_time}s</p>
             </div>
@@ -102,6 +129,63 @@ const Statistics = () => {
             </div>
           </div>
         </div>
+
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Templates genutzt</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.template_usage.length}</p>
+            </div>
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+              <FileText className="w-6 h-6 text-indigo-600" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Usage Trend */}
+      <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
+        <h2 className="text-xl font-semibold text-gray-900 mb-6">Nutzungstrend (7 Tage)</h2>
+        
+        {stats.usage_trend.length > 0 ? (
+          <div className="space-y-4">
+            {stats.usage_trend.map((day, index) => (
+              <div key={day.date} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-4">
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-sm font-medium text-blue-600">{index + 1}</span>
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-gray-900">
+                      {new Date(day.date).toLocaleDateString('de-DE', { 
+                        weekday: 'short', 
+                        month: 'short', 
+                        day: 'numeric' 
+                      })}
+                    </h3>
+                    <p className="text-sm text-gray-500">{day.count} Generierungen</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-semibold text-gray-900">{day.count}</div>
+                  <div className="w-32 bg-gray-200 rounded-full h-2 mt-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full" 
+                      style={{ 
+                        width: `${Math.max((day.count / Math.max(...stats.usage_trend.map(d => d.count))) * 100, 5)}%` 
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p>Noch keine Nutzungsdaten verfügbar</p>
+          </div>
+        )}
       </div>
 
       {/* Model Usage */}
@@ -118,7 +202,9 @@ const Statistics = () => {
                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900">{model.model}</h3>
-                    <p className="text-sm text-gray-500">{model.count} Generierungen</p>
+                    <p className="text-sm text-gray-500">
+                      {model.count} Generierungen • {model.total_tokens.toLocaleString()} Tokens • {model.avg_time}s avg
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -142,6 +228,40 @@ const Statistics = () => {
           </div>
         )}
       </div>
+
+      {/* Template Usage */}
+      {stats.template_usage.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 mb-6">Template-Nutzung</h2>
+          
+          <div className="space-y-4">
+            {stats.template_usage.map((template, index) => (
+              <div key={template.template} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-4">
+                  <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
+                    <span className="text-sm font-medium text-indigo-600">{index + 1}</span>
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-gray-900">{template.template}</h3>
+                    <p className="text-sm text-gray-500">{template.count} Verwendungen</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-semibold text-gray-900">
+                    {((template.count / stats.total_generations) * 100).toFixed(1)}%
+                  </div>
+                  <div className="w-32 bg-gray-200 rounded-full h-2 mt-2">
+                    <div 
+                      className="bg-indigo-600 h-2 rounded-full" 
+                      style={{ width: `${(template.count / stats.total_generations) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Efficiency Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -168,6 +288,11 @@ const Statistics = () => {
             <div className="flex justify-between items-center">
               <span className="text-gray-600">Durchschn. Antwortzeit</span>
               <span className="font-semibold">{stats.average_processing_time}s</span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Erfolgsrate</span>
+              <span className="font-semibold text-emerald-600">{stats.success_rate}%</span>
             </div>
           </div>
         </div>

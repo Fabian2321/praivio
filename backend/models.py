@@ -60,6 +60,9 @@ class TextGenerationRequest(BaseModel):
     model: str = Field(default="llama2", description="Zu verwendendes Modell")
     max_tokens: int = Field(default=1000, ge=1, le=4000, description="Maximale Token-Anzahl")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Kreativität (0.0-2.0)")
+    top_p: float = Field(default=0.9, ge=0.0, le=1.0, description="Nucleus Sampling (0.0-1.0)")
+    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="Frequenz-Strafe (-2.0-2.0)")
+    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0, description="Präsenz-Strafe (-2.0-2.0)")
     template: Optional[str] = Field(None, description="Vorlagen-ID")
     context: Optional[str] = Field(None, max_length=5000, description="Zusätzlicher Kontext")
     
@@ -74,7 +77,7 @@ class TextGenerationResponse(BaseModel):
     """Modell für Text-Generierungs-Response"""
     id: int
     generated_text: str
-    model_used: str
+    model_name: str
     tokens_used: int
     processing_time: float
     template_used: Optional[str]
@@ -103,12 +106,15 @@ class TemplateInfo(BaseModel):
 class StatisticsResponse(BaseModel):
     """Modell für Statistiken-Response"""
     total_generations: int
-    total_tokens: int
+    total_tokens_used: int
     active_users: int
     audit_events_today: int
-    average_processing_time: Optional[float] = None
-    most_used_model: Optional[str] = None
-    most_used_template: Optional[str] = None
+    average_processing_time: float
+    success_rate: float
+    generations_today: int
+    usage_trend: List[Dict[str, Any]]
+    model_usage: List[Dict[str, Any]]
+    template_usage: List[Dict[str, Any]]
 
 class AuditLogResponse(BaseModel):
     """Modell für Audit-Log-Response"""

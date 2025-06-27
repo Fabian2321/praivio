@@ -200,20 +200,55 @@ async def generate_text(
         # Build prompt with template if provided
         prompt = sanitized_prompt
         if request.template and sanitized_context:
-            prompt = f"Context: {sanitized_context}\n\nRequest: {prompt}"
+            # Get template instruction
+            template_instruction = ""
+            if request.template == "arztbericht":
+                template_instruction = "Erstelle einen strukturierten Arztbericht basierend auf den folgenden Informationen:"
+            elif request.template == "befund":
+                template_instruction = "Formuliere einen medizinischen Befund für:"
+            elif request.template == "anamnese":
+                template_instruction = "Erstelle eine strukturierte Anamnese für:"
+            elif request.template == "entlassungsbrief":
+                template_instruction = "Verfasse einen Entlassungsbrief für:"
+            elif request.template == "vertragsanalyse":
+                template_instruction = "Analysiere den folgenden Vertrag und erstelle eine Zusammenfassung der wichtigsten Punkte:"
+            elif request.template == "rechtsgutachten":
+                template_instruction = "Erstelle ein Rechtsgutachten zu folgendem Sachverhalt:"
+            elif request.template == "klageschrift":
+                template_instruction = "Verfasse eine Klageschrift für:"
+            elif request.template == "vertragsentwurf":
+                template_instruction = "Erstelle einen Vertragsentwurf für:"
+            elif request.template == "bericht":
+                template_instruction = "Erstelle einen behördlichen Bericht zu:"
+            elif request.template == "protokoll":
+                template_instruction = "Verfasse ein Protokoll zu:"
+            elif request.template == "entscheidung":
+                template_instruction = "Formuliere eine behördliche Entscheidung zu:"
+            elif request.template == "dokumentation":
+                template_instruction = "Erstelle eine Dokumentation zu:"
+            
+            # Build final prompt with template
+            if template_instruction:
+                prompt = f"{template_instruction}\n\nContext: {sanitized_context}\n\nRequest: {prompt}"
+            else:
+                prompt = f"Context: {sanitized_context}\n\nRequest: {prompt}"
+            
             logger.info(f"Template applied: {request.template}")
         
         # Call Ollama API
         logger.info(f"Preparing Ollama request for model: {request.model}")
         try:
-            async with httpx.AsyncClient(base_url=OLLAMA_BASE_URL, timeout=60.0) as client:
+            async with httpx.AsyncClient(base_url=OLLAMA_BASE_URL, timeout=300.0) as client:
                 ollama_request = {
                     "model": request.model,
                     "prompt": prompt,
                     "stream": False,
                     "options": {
                         "temperature": request.temperature,
-                        "num_predict": request.max_tokens
+                        "num_predict": request.max_tokens,
+                        "top_p": request.top_p,
+                        "repeat_penalty": 1.0 + request.frequency_penalty if request.frequency_penalty > 0 else 1.0,
+                        "presence_penalty": request.presence_penalty
                     }
                 }
                 
@@ -296,7 +331,7 @@ async def generate_text(
         return TextGenerationResponse(
             id=generation_id,
             generated_text=generated_text,
-            model_used=request.model,
+            model_name=request.model,
             tokens_used=tokens_used,
             processing_time=processing_time,
             template_used=request.template,
@@ -359,47 +394,43 @@ async def get_statistics(current_user: Dict[str, Any] = Depends(supabase_auth.ge
     try:
         stats = db_manager.get_statistics(current_user['id'])
         
-        # Get additional stats
-        with db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Average processing time
-            cursor.execute("""
-                SELECT AVG(processing_time) FROM text_generations 
-                WHERE user_id = ?
-            """, (current_user['id'],))
-            avg_time = cursor.fetchone()[0]
-            
-            # Most used model
-            cursor.execute("""
-                SELECT model_used, COUNT(*) as count 
-                FROM text_generations 
-                WHERE user_id = ?
-                GROUP BY model_used 
-                ORDER BY count DESC 
-                LIMIT 1
-            """, (current_user['id'],))
-            model_result = cursor.fetchone()
-            
-            # Most used template
-            cursor.execute("""
-                SELECT template_used, COUNT(*) as count 
-                FROM text_generations 
-                WHERE user_id = ? AND template_used IS NOT NULL
-                GROUP BY template_used 
-                ORDER BY count DESC 
-                LIMIT 1
-            """, (current_user['id'],))
-            template_result = cursor.fetchone()
+        return StatisticsResponse(
+            total_generations=stats['total_generations'],
+            total_tokens_used=stats['total_tokens_used'],
+            active_users=stats['active_users'],
+            audit_events_today=stats['audit_events_today'],
+            average_processing_time=stats['average_processing_time'],
+            success_rate=stats['success_rate'],
+            generations_today=stats['generations_today'],
+            usage_trend=stats['usage_trend'],
+            model_usage=stats['model_usage'],
+            template_usage=stats['template_usage']
+        )
+        
+    except Exception as e:
+        logger.error(f"Statistics error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get statistics"
+        )
+
+@app.get("/stats-test")
+async def get_statistics_test():
+    """Get system statistics (test endpoint without auth)"""
+    try:
+        stats = db_manager.get_statistics()
         
         return StatisticsResponse(
             total_generations=stats['total_generations'],
-            total_tokens=stats['total_tokens'],
+            total_tokens_used=stats['total_tokens_used'],
             active_users=stats['active_users'],
             audit_events_today=stats['audit_events_today'],
-            average_processing_time=avg_time,
-            most_used_model=model_result[0] if model_result else None,
-            most_used_template=template_result[0] if template_result else None
+            average_processing_time=stats['average_processing_time'],
+            success_rate=stats['success_rate'],
+            generations_today=stats['generations_today'],
+            usage_trend=stats['usage_trend'],
+            model_usage=stats['model_usage'],
+            template_usage=stats['template_usage']
         )
         
     except Exception as e:

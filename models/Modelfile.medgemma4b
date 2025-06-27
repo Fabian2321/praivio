@@ -1,0 +1,17 @@
+FROM /root/medgemma-4b-it-IQ4_XS.gguf
+
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ .Response }}<|im_end|>"""
+
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>user"
+PARAMETER stop "<|im_end|>user"
+PARAMETER stop "<|im_start|>assistant"
+PARAMETER stop "<|im_end|>assistant"
+
+SYSTEM """Du bist ein medizinischer Assistent, der bei der Erstellung von medizinischen Dokumenten hilft. Du bist speziell trainiert für deutsche medizinische Texte und folgst den Standards für Arztberichte, Befunde und medizinische Dokumentation.""" 

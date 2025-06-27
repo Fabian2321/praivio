@@ -330,7 +330,7 @@ class DatabaseManager:
             conn.commit()
     
     def get_statistics(self, user_id: Optional[int] = None) -> Dict[str, Any]:
-        """Holt Statistiken"""
+        """Holt erweiterte Statistiken"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
@@ -348,7 +348,131 @@ class DatabaseManager:
                 cursor.execute("SELECT SUM(tokens_used) FROM text_generations WHERE user_id = ?", (user_id,))
             else:
                 cursor.execute("SELECT SUM(tokens_used) FROM text_generations")
-            stats['total_tokens'] = cursor.fetchone()[0] or 0
+            stats['total_tokens_used'] = cursor.fetchone()[0] or 0
+            
+            # Durchschnittliche Verarbeitungszeit
+            if user_id:
+                cursor.execute("SELECT AVG(processing_time) FROM text_generations WHERE user_id = ?", (user_id,))
+            else:
+                cursor.execute("SELECT AVG(processing_time) FROM text_generations")
+            avg_time = cursor.fetchone()[0]
+            stats['average_processing_time'] = round(avg_time, 2) if avg_time else 0.0
+            
+            # Erfolgsrate (basierend auf erfolgreichen Generierungen vs. fehlgeschlagene Audit-Logs)
+            if user_id:
+                # Erfolgreiche Generierungen
+                cursor.execute("SELECT COUNT(*) FROM text_generations WHERE user_id = ?", (user_id,))
+                successful_generations = cursor.fetchone()[0]
+                
+                # Fehlgeschlagene Generierungen (aus Audit-Logs)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM audit_logs 
+                    WHERE user_id = ? AND action = 'text_generation' AND success = 0
+                    AND DATE(created_at) >= DATE('now', '-30 days')
+                """, (user_id,))
+                failed_generations = cursor.fetchone()[0]
+                
+                total_attempts = successful_generations + failed_generations
+                if total_attempts > 0:
+                    stats['success_rate'] = round((successful_generations / total_attempts) * 100, 1)
+                else:
+                    stats['success_rate'] = 100.0
+            else:
+                # System-weite Erfolgsrate
+                cursor.execute("SELECT COUNT(*) FROM text_generations")
+                successful_generations = cursor.fetchone()[0]
+                
+                cursor.execute("""
+                    SELECT COUNT(*) FROM audit_logs 
+                    WHERE action = 'text_generation' AND success = 0
+                    AND DATE(created_at) >= DATE('now', '-30 days')
+                """)
+                failed_generations = cursor.fetchone()[0]
+                
+                total_attempts = successful_generations + failed_generations
+                if total_attempts > 0:
+                    stats['success_rate'] = round((successful_generations / total_attempts) * 100, 1)
+                else:
+                    stats['success_rate'] = 100.0
+            
+            # Nutzungstrend (Generierungen der letzten 7 Tage)
+            if user_id:
+                cursor.execute("""
+                    SELECT DATE(created_at) as date, COUNT(*) as count
+                    FROM text_generations 
+                    WHERE user_id = ? AND DATE(created_at) >= DATE('now', '-7 days')
+                    GROUP BY DATE(created_at)
+                    ORDER BY date
+                """, (user_id,))
+            else:
+                cursor.execute("""
+                    SELECT DATE(created_at) as date, COUNT(*) as count
+                    FROM text_generations 
+                    WHERE DATE(created_at) >= DATE('now', '-7 days')
+                    GROUP BY DATE(created_at)
+                    ORDER BY date
+                """)
+            
+            usage_trend = cursor.fetchall()
+            stats['usage_trend'] = [
+                {'date': row[0], 'count': row[1]} for row in usage_trend
+            ]
+            
+            # Detaillierte Modell-Nutzung
+            if user_id:
+                cursor.execute("""
+                    SELECT model_used, COUNT(*) as count, 
+                           SUM(tokens_used) as total_tokens,
+                           AVG(processing_time) as avg_time
+                    FROM text_generations 
+                    WHERE user_id = ?
+                    GROUP BY model_used 
+                    ORDER BY count DESC
+                """, (user_id,))
+            else:
+                cursor.execute("""
+                    SELECT model_used, COUNT(*) as count, 
+                           SUM(tokens_used) as total_tokens,
+                           AVG(processing_time) as avg_time
+                    FROM text_generations 
+                    GROUP BY model_used 
+                    ORDER BY count DESC
+                """)
+            
+            model_usage = cursor.fetchall()
+            stats['model_usage'] = [
+                {
+                    'model': row[0],
+                    'count': row[1],
+                    'total_tokens': row[2] or 0,
+                    'avg_time': round(row[3], 2) if row[3] else 0.0
+                } for row in model_usage
+            ]
+            
+            # Template-Nutzung
+            if user_id:
+                cursor.execute("""
+                    SELECT template_used, COUNT(*) as count
+                    FROM text_generations 
+                    WHERE user_id = ? AND template_used IS NOT NULL
+                    GROUP BY template_used 
+                    ORDER BY count DESC
+                    LIMIT 5
+                """, (user_id,))
+            else:
+                cursor.execute("""
+                    SELECT template_used, COUNT(*) as count
+                    FROM text_generations 
+                    WHERE template_used IS NOT NULL
+                    GROUP BY template_used 
+                    ORDER BY count DESC
+                    LIMIT 5
+                """)
+            
+            template_usage = cursor.fetchall()
+            stats['template_usage'] = [
+                {'template': row[0], 'count': row[1]} for row in template_usage
+            ]
             
             # Aktive Benutzer
             cursor.execute("SELECT COUNT(*) FROM users WHERE is_active = 1")
@@ -360,5 +484,18 @@ class DatabaseManager:
                 WHERE DATE(created_at) = DATE('now')
             """)
             stats['audit_events_today'] = cursor.fetchone()[0]
+            
+            # Generierungen heute
+            if user_id:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM text_generations 
+                    WHERE user_id = ? AND DATE(created_at) = DATE('now')
+                """, (user_id,))
+            else:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM text_generations 
+                    WHERE DATE(created_at) = DATE('now')
+                """)
+            stats['generations_today'] = cursor.fetchone()[0]
             
             return stats 
