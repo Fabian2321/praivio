@@ -175,13 +175,6 @@ const Login = ({ onLoginSuccess }) => {
             </p>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="text-center mt-8">
-          <p className="text-slate-400 text-sm">
-            © 2024 Praivio - Sichere KI für datensensible Institutionen
-          </p>
-        </div>
       </div>
     </div>
   );

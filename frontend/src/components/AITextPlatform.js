@@ -948,7 +948,7 @@ export default function AITextPlatform({ user, onLogout }) {
 
         <div className="flex h-[calc(100vh-88px)]">
           {/* Linke Sidebar: Modell, Vorlagen, Einstellungen */}
-          <aside className="hidden xl:block w-80 h-screen bg-slate-900/95 border-r-2 border-slate-700 p-6 space-y-6 overflow-y-auto">
+          <aside className="hidden xl:block w-80 bg-slate-900/95 border-r-2 border-slate-700 p-6 space-y-6 overflow-y-auto rounded-none shadow-none">
             <ModelSelector selectedModel={selectedModel} onModelSelect={setSelectedModel} models={models} />
             <TemplateSystem onTemplateSelect={handleTemplateSelect} templates={templates} />
             <SettingsPanel settings={settings} onSettingsChange={setSettings} />
@@ -970,7 +970,7 @@ export default function AITextPlatform({ user, onLogout }) {
           </main>
 
           {/* Rechte Sidebar bleibt erhalten */}
-          <aside className="hidden xl:block w-80 bg-slate-900/95 border-l-2 border-slate-700 p-6 space-y-6 overflow-y-auto">
+          <aside className="hidden xl:block w-80 bg-slate-900/95 border-l-2 border-slate-700 p-6 space-y-6 overflow-y-auto rounded-none shadow-none">
             <HistoryPanel
               generations={generations}
               onGenerationSelect={handleGenerationSelect}

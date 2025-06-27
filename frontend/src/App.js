@@ -5,6 +5,9 @@ import Login from './components/Login.js';
 import axios from 'axios';
 import { supabase } from './supabaseClient';
 import './App.css';
+import Footer from './components/Footer';
+import Impressum from './components/Impressum';
+import Datenschutz from './components/Datenschutz';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -74,39 +77,46 @@ function App() {
   return (
     <Router>
       {redirectToLogin && <Navigate to="/login" replace />}
-      <Routes>
-        <Route path="/login" element={
-          <PublicRoute>
-            <Login onLoginSuccess={handleLoginSuccess} />
-          </PublicRoute>
-        } />
-        <Route path="/" element={
-          <PrivateRoute>
-            <AITextPlatform user={user} onLogout={handleLogout} />
-          </PrivateRoute>
-        } />
-        <Route path="/models" element={
-          <PrivateRoute>
-            <AITextPlatform user={user} onLogout={handleLogout} />
-          </PrivateRoute>
-        } />
-        <Route path="/templates" element={
-          <PrivateRoute>
-            <AITextPlatform user={user} onLogout={handleLogout} />
-          </PrivateRoute>
-        } />
-        <Route path="/statistics" element={
-          <PrivateRoute>
-            <AITextPlatform user={user} onLogout={handleLogout} />
-          </PrivateRoute>
-        } />
-        <Route path="/settings" element={
-          <PrivateRoute>
-            <AITextPlatform user={user} onLogout={handleLogout} />
-          </PrivateRoute>
-        } />
-        <Route path="*" element={<Navigate to={isAuthenticated ? "/" : "/login"} replace />} />
-      </Routes>
+      <div className="min-h-screen flex flex-col">
+        <div className="flex-1 flex flex-col">
+          <Routes>
+            <Route path="/login" element={
+              <PublicRoute>
+                <Login onLoginSuccess={handleLoginSuccess} />
+              </PublicRoute>
+            } />
+            <Route path="/impressum" element={<Impressum />} />
+            <Route path="/datenschutz" element={<Datenschutz />} />
+            <Route path="/" element={
+              <PrivateRoute>
+                <AITextPlatform user={user} onLogout={handleLogout} />
+              </PrivateRoute>
+            } />
+            <Route path="/models" element={
+              <PrivateRoute>
+                <AITextPlatform user={user} onLogout={handleLogout} />
+              </PrivateRoute>
+            } />
+            <Route path="/templates" element={
+              <PrivateRoute>
+                <AITextPlatform user={user} onLogout={handleLogout} />
+              </PrivateRoute>
+            } />
+            <Route path="/statistics" element={
+              <PrivateRoute>
+                <AITextPlatform user={user} onLogout={handleLogout} />
+              </PrivateRoute>
+            } />
+            <Route path="/settings" element={
+              <PrivateRoute>
+                <AITextPlatform user={user} onLogout={handleLogout} />
+              </PrivateRoute>
+            } />
+            <Route path="*" element={<Navigate to={isAuthenticated ? "/" : "/login"} replace />} />
+          </Routes>
+        </div>
+        <Footer />
+      </div>
     </Router>
   );
 }
