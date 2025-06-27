@@ -13,7 +13,7 @@
 - **Audit-Logs** für alle Aktivitäten
 
 ### 🤖 **KI-Funktionen**
-- **Mehrere KI-Modelle** (phi3:mini, tinyllama, llama2)
+- **Mehrere KI-Modelle** (medgemma-27b-multimodal, medgemma-4b-it)
 - **Vorlagen-System** für medizinische, rechtliche und behördliche Dokumente
 - **Kontextuelle Textgenerierung** mit anpassbaren Parametern
 - **Batch-Verarbeitung** für mehrere Anfragen
@@ -48,8 +48,8 @@ Praivio/
 
 ### Voraussetzungen
 - Docker und Docker Compose
-- Mindestens 8GB RAM (16GB empfohlen)
-- 10GB freier Speicherplatz
+- Mindestens 16GB RAM (32GB empfohlen für große Modelle)
+- 20GB freier Speicherplatz (für Modelle)
 
 ### Installation
 
@@ -59,18 +59,36 @@ git clone <repository-url>
 cd Praivio
 ```
 
-2. **Umgebungsvariablen konfigurieren**
+2. **KI-Modelle herunterladen** ⚠️ **WICHTIG**
+   
+   **Vor dem Start der Anwendung müssen die KI-Modelle heruntergeladen werden:**
+   
+   ```bash
+   # Option 1: Mit Ollama (empfohlen)
+   docker run -d -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
+   docker exec -it ollama ollama pull medgemma:27b-multimodal
+   docker exec -it ollama ollama pull medgemma:4b-it
+   
+   # Option 2: Manueller Download
+   # Lade die folgenden Dateien in das models/ Verzeichnis:
+   # - medgemma-27b-multimodal-IQ4_XS.gguf (~3.7GB)
+   # - medgemma-4b-it-IQ4_XS.gguf (~2.3GB)
+   ```
+   
+   **Hinweis:** Die großen Modell-Dateien sind nicht im Git-Repository enthalten. Siehe [models/README.md](models/README.md) für detaillierte Download-Anweisungen.
+
+3. **Umgebungsvariablen konfigurieren**
 ```bash
 cp env.example .env
 # Bearbeite .env nach Bedarf
 ```
 
-3. **Plattform starten**
+4. **Plattform starten**
 ```bash
 docker-compose up -d
 ```
 
-4. **Zugriff**
+5. **Zugriff**
 - **Frontend**: http://localhost:3001
 - **Backend API**: http://localhost:8000
 - **Ollama**: http://localhost:11434
@@ -78,9 +96,8 @@ docker-compose up -d
 ## 📋 Verwendung
 
 ### 1. Modell auswählen
-- **tinyllama**: Schnell, klein (1B Parameter) - ideal für einfache Aufgaben
-- **phi3:mini**: Ausgewogen (3.8B Parameter) - gut für komplexere Texte
-- **llama2**: Groß (7B Parameter) - für anspruchsvolle Aufgaben
+- **medgemma-4b-it**: Schnell, klein (4B Parameter) - ideal für einfache Aufgaben
+- **medgemma-27b-multimodal**: Groß (27B Parameter) - für anspruchsvolle Aufgaben mit Bildverarbeitung
 
 ### 2. Vorlage wählen
 - **Medizinisch**: Arztberichte, Befunde, Anamnesen
@@ -107,13 +124,16 @@ REACT_APP_API_URL=http://localhost:8000
 REACT_APP_TITLE=Praivio
 ```
 
-### Modelle hinzufügen
+### Modelle verwalten
 ```bash
+# Verfügbare Modelle anzeigen
+docker exec -it praivio-ollama-1 ollama list
+
 # Neues Modell herunterladen
 docker exec -it praivio-ollama-1 ollama pull llama2:7b-chat-q4_0
 
-# Verfügbare Modelle anzeigen
-docker exec -it praivio-ollama-1 ollama list
+# Modell löschen
+docker exec -it praivio-ollama-1 ollama rm medgemma:27b-multimodal
 ```
 
 ## 📊 Monitoring
