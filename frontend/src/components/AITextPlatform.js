@@ -771,22 +771,6 @@ export default function AITextPlatform({ user, onLogout }) {
     setGenerations((prev) => prev.filter((gen) => gen.id !== id))
   }
 
-  // Test function to manually add a generation
-  const testAddGeneration = () => {
-    console.log("🧪 Adding test generation...");
-    const testGeneration = {
-      id: Date.now().toString(),
-      prompt: "Test prompt",
-      result: "Test result",
-      model: "test-model",
-      timestamp: new Date(),
-      tokens: 150,
-      processingTime: 2.5,
-      isStreaming: false
-    };
-    setGenerations(prev => [testGeneration, ...prev]);
-  };
-
   const handleGenerate = async (prompt, context, onStreamChunk) => {
     console.log("🚀 AITextPlatform handleGenerate called with:", { prompt, context, hasCallback: !!onStreamChunk });
     setIsGenerating(true)
@@ -1040,17 +1024,6 @@ export default function AITextPlatform({ user, onLogout }) {
                 onGenerate={(prompt, context, onStreamChunk) => handleGenerate(prompt, context, onStreamChunk)}
                 isGenerating={isGenerating}
               />
-
-              {/* Test Button */}
-              <div className="mt-4 p-4 bg-red-900/30 border-2 border-red-600 rounded-xl">
-                <button
-                  onClick={testAddGeneration}
-                  className="w-full p-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors"
-                >
-                  🧪 Test: Add Generation (150 tokens, 2.5s)
-                </button>
-                <p className="text-red-300 text-sm mt-2">Klicke um eine Test-Generation hinzuzufügen und zu prüfen, ob die Statistiken aktualisiert werden.</p>
-              </div>
             </div>
           </main>
 
