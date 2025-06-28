@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 import httpx
 import os
 import logging
@@ -10,6 +10,7 @@ from datetime import datetime
 import sqlite3
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+import asyncio
 
 # Import our modules
 from security import SecurityManager, RateLimiter
@@ -363,6 +364,219 @@ async def generate_text(
             detail="Text generation failed"
         )
 
+@app.post("/generate/stream")
+async def generate_text_stream(
+    request: TextGenerationRequest,
+    api_request: Request,
+    current_user: Dict[str, Any] = Depends(check_rate_limit)
+):
+    """Generate text using LLM with streaming"""
+    start_time = datetime.now()
+    logger.info(f"Starting streaming text generation for user {current_user['id']} with model {request.model}")
+    
+    async def generate_stream():
+        try:
+            # Sanitize inputs
+            logger.info("Sanitizing inputs...")
+            sanitized_prompt = security_manager.sanitize_input(request.prompt)
+            sanitized_context = security_manager.sanitize_input(request.context) if request.context else ""
+            logger.info(f"Input sanitization complete. Prompt length: {len(sanitized_prompt)}")
+            
+            # Build prompt with template if provided
+            prompt = sanitized_prompt
+            if request.template and sanitized_context:
+                # Get template instruction
+                template_instruction = ""
+                if request.template == "arztbericht":
+                    template_instruction = "Erstelle einen strukturierten Arztbericht basierend auf den folgenden Informationen:"
+                elif request.template == "befund":
+                    template_instruction = "Formuliere einen medizinischen Befund für:"
+                elif request.template == "anamnese":
+                    template_instruction = "Erstelle eine strukturierte Anamnese für:"
+                elif request.template == "entlassungsbrief":
+                    template_instruction = "Verfasse einen Entlassungsbrief für:"
+                elif request.template == "vertragsanalyse":
+                    template_instruction = "Analysiere den folgenden Vertrag und erstelle eine Zusammenfassung der wichtigsten Punkte:"
+                elif request.template == "rechtsgutachten":
+                    template_instruction = "Erstelle ein Rechtsgutachten zu folgendem Sachverhalt:"
+                elif request.template == "klageschrift":
+                    template_instruction = "Verfasse eine Klageschrift für:"
+                elif request.template == "vertragsentwurf":
+                    template_instruction = "Erstelle einen Vertragsentwurf für:"
+                elif request.template == "bericht":
+                    template_instruction = "Erstelle einen behördlichen Bericht zu:"
+                elif request.template == "protokoll":
+                    template_instruction = "Verfasse ein Protokoll zu:"
+                elif request.template == "entscheidung":
+                    template_instruction = "Formuliere eine behördliche Entscheidung zu:"
+                elif request.template == "dokumentation":
+                    template_instruction = "Erstelle eine Dokumentation zu:"
+                
+                # Build final prompt with template
+                if template_instruction:
+                    prompt = f"{template_instruction}\n\nContext: {sanitized_context}\n\nRequest: {prompt}"
+                else:
+                    prompt = f"Context: {sanitized_context}\n\nRequest: {prompt}"
+                
+                logger.info(f"Template applied: {request.template}")
+            
+            # Call Ollama API with streaming
+            logger.info(f"Preparing Ollama streaming request for model: {request.model}")
+            
+            async with httpx.AsyncClient(base_url=OLLAMA_BASE_URL, timeout=300.0) as client:
+                ollama_request = {
+                    "model": request.model,
+                    "prompt": prompt,
+                    "stream": True,  # Enable streaming
+                    "options": {
+                        "temperature": request.temperature,
+                        "num_predict": request.max_tokens,
+                        "top_p": request.top_p,
+                        "repeat_penalty": 1.0 + request.frequency_penalty if request.frequency_penalty > 0 else 1.0,
+                        "presence_penalty": request.presence_penalty
+                    }
+                }
+                
+                logger.info(f"Sending streaming request to Ollama at {OLLAMA_BASE_URL}/api/generate")
+                
+                # Stream the response
+                full_text = ""
+                tokens_used = 0
+                stream_ended = False
+                
+                async with client.stream("POST", "/api/generate", json=ollama_request) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        logger.error(f"Ollama error response: {error_text}")
+                        yield f"data: {json.dumps({'error': 'LLM service error'})}\n\n"
+                        return
+                    
+                    async for line in response.aiter_lines():
+                        if line.strip():
+                            try:
+                                data = json.loads(line)
+                                
+                                if 'response' in data:
+                                    chunk = data['response']
+                                    full_text += chunk
+                                    tokens_used = data.get('eval_count', tokens_used)
+                                    
+                                    # Send chunk to client
+                                    yield f"data: {json.dumps({'chunk': chunk, 'done': False})}\n\n"
+                                
+                                elif data.get('done', False):
+                                    # Ollama sent explicit done signal
+                                    stream_ended = True
+                                    processing_time = (datetime.now() - start_time).total_seconds()
+                                    logger.info(f"Streaming generation completed in {processing_time:.2f} seconds")
+                                    
+                                    # Save to database
+                                    try:
+                                        generation_id = db_manager.save_text_generation(
+                                            user_id=current_user['id'],
+                                            prompt=sanitized_prompt,
+                                            generated_text=full_text,
+                                            model_used=request.model,
+                                            tokens_used=tokens_used,
+                                            processing_time=processing_time,
+                                            template_used=request.template,
+                                            context=sanitized_context
+                                        )
+                                        logger.info(f"Generation saved with ID: {generation_id}")
+                                    except Exception as db_exc:
+                                        logger.error(f"Database save error: {db_exc}")
+                                        generation_id = None
+                                    
+                                    # Log successful text generation
+                                    try:
+                                        audit_logger.log_text_generation(
+                                            user_id=current_user['id'],
+                                            model=request.model,
+                                            tokens=tokens_used,
+                                            ip_address=api_request.client.host if api_request.client else "unknown",
+                                            success=True
+                                        )
+                                    except Exception as audit_exc:
+                                        logger.error(f"Audit logging error: {audit_exc}")
+                                    
+                                    # Send completion signal
+                                    yield f"data: {json.dumps({'done': True, 'generation_id': generation_id, 'tokens_used': tokens_used, 'processing_time': processing_time})}\n\n"
+                                    break
+                                    
+                            except json.JSONDecodeError:
+                                logger.warning(f"Invalid JSON from Ollama: {line}")
+                                continue
+                            except Exception as e:
+                                logger.error(f"Error processing streaming response: {e}")
+                                yield f"data: {json.dumps({'error': 'Streaming error'})}\n\n"
+                                break
+                    
+                    # If stream ended without explicit done signal, send completion event anyway
+                    if not stream_ended:
+                        processing_time = (datetime.now() - start_time).total_seconds()
+                        logger.info(f"Stream ended without explicit done signal. Sending completion event. Processing time: {processing_time:.2f} seconds")
+                        
+                        # Save to database
+                        try:
+                            generation_id = db_manager.save_text_generation(
+                                user_id=current_user['id'],
+                                prompt=sanitized_prompt,
+                                generated_text=full_text,
+                                model_used=request.model,
+                                tokens_used=tokens_used,
+                                processing_time=processing_time,
+                                template_used=request.template,
+                                context=sanitized_context
+                            )
+                            logger.info(f"Generation saved with ID: {generation_id}")
+                        except Exception as db_exc:
+                            logger.error(f"Database save error: {db_exc}")
+                            generation_id = None
+                        
+                        # Log successful text generation
+                        try:
+                            audit_logger.log_text_generation(
+                                user_id=current_user['id'],
+                                model=request.model,
+                                tokens=tokens_used,
+                                ip_address=api_request.client.host if api_request.client else "unknown",
+                                success=True
+                            )
+                        except Exception as audit_exc:
+                            logger.error(f"Audit logging error: {audit_exc}")
+                        
+                        # Send completion signal
+                        yield f"data: {json.dumps({'done': True, 'generation_id': generation_id, 'tokens_used': tokens_used, 'processing_time': processing_time})}\n\n"
+                
+        except Exception as e:
+            import traceback
+            logger.error(f"Streaming generation error: {e}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Log failed text generation
+            try:
+                audit_logger.log_text_generation(
+                    user_id=current_user['id'],
+                    model=request.model,
+                    tokens=0,
+                    ip_address=api_request.client.host if api_request.client else "unknown",
+                    success=False
+                )
+            except Exception as audit_exc:
+                logger.error(f"Failed audit logging error: {audit_exc}")
+            
+            yield f"data: {json.dumps({'error': 'Text generation failed'})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        }
+    )
+
 @app.get("/templates")
 async def get_templates():
     """Get available templates"""
@@ -464,7 +678,19 @@ async def get_user_generations(
     """Get user's text generations"""
     try:
         generations = db_manager.get_user_generations(current_user['id'], limit)
-        return [TextGenerationResponse(**gen) for gen in generations]
+        # Nur die Felder für das Response-Modell extrahieren
+        result = []
+        for gen in generations:
+            result.append(TextGenerationResponse(
+                id=gen['id'],
+                generated_text=gen['generated_text'],
+                model_name=gen['model_used'],
+                tokens_used=gen['tokens_used'],
+                processing_time=gen['processing_time'],
+                template_used=gen['template_used'],
+                created_at=gen['created_at'] if isinstance(gen['created_at'], datetime) else datetime.fromisoformat(gen['created_at'])
+            ))
+        return result
     except Exception as e:
         logger.error(f"User generations error: {e}")
         raise HTTPException(

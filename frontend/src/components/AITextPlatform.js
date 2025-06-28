@@ -1,13 +1,11 @@
-// AI Text Generation Platform - Complete Implementation
-// Modern replacement for the current TextGenerator component
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Cpu, Check, FileText, Search, Filter, Copy, Download, Loader2, CheckCircle, Sparkles, Settings, Info, Clock, Trash2, History, BarChart3, Zap, TrendingUp, Activity, User, Menu, X, Users, LogOut } from 'lucide-react';
 import axios from 'axios';
-import UserManagement from './UserManagement';
 
-// ===== UTILITY FUNCTIONS =====
 const formatNumber = (num) => {
+  if (num === undefined || num === null || isNaN(num)) {
+    return "0"
+  }
   if (num >= 1000000) {
     return (num / 1000000).toFixed(1) + "M"
   }
@@ -18,16 +16,20 @@ const formatNumber = (num) => {
 }
 
 const formatTime = (seconds) => {
+  if (seconds === undefined || seconds === null || isNaN(seconds)) {
+    return "0.0s"
+  }
   return `${seconds.toFixed(1)}s`
 }
 
 const formatDate = (date) => {
-  return new Intl.DateTimeFormat("de-DE", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date)
+  return new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(date))
 }
 
 const copyToClipboard = async (text) => {
@@ -35,6 +37,7 @@ const copyToClipboard = async (text) => {
     await navigator.clipboard.writeText(text)
     return true
   } catch (err) {
+    console.error('Failed to copy text: ', err)
     return false
   }
 }
@@ -42,7 +45,7 @@ const copyToClipboard = async (text) => {
 const downloadAsFile = (content, filename, type) => {
   const blob = new Blob([content], { type })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
+  const a = document.createElement('a')
   a.href = url
   a.download = filename
   document.body.appendChild(a)
@@ -51,66 +54,132 @@ const downloadAsFile = (content, filename, type) => {
   URL.revokeObjectURL(url)
 }
 
-// ===== COMPONENTS =====
-
-/**
- * @param {{selectedModel: any, onModelSelect: Function, models: any[]}} props
- */
 function ModelSelector({ selectedModel, onModelSelect, models }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   return (
-    <div className="relative">
+    <div className="space-y-4">
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full p-4 bg-slate-800 border-2 border-slate-700 rounded-xl hover:border-purple-500 hover:bg-slate-750 transition-all duration-200 flex items-center justify-between group card-shadow focus-ring"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full p-4 bg-slate-800 border-2 border-slate-700 hover:border-purple-500 hover:bg-slate-750 rounded-xl transition-all duration-200 flex items-center justify-between card-shadow focus-ring"
       >
         <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg shadow-lg">
+          <div className="p-2 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg">
             <Cpu className="w-5 h-5 text-white" />
           </div>
-          <div className="text-left">
-            <p className="text-white font-semibold text-lg">{selectedModel.name}</p>
-            <p className="text-slate-300 text-sm font-medium">{selectedModel.parameters}</p>
-          </div>
+          <span className="text-white font-semibold">Modell</span>
         </div>
         <ChevronDown
-          className={`w-5 h-5 text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          className={`w-5 h-5 text-slate-400 transform transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
         />
       </button>
 
-      {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border-2 border-slate-700 rounded-xl overflow-hidden z-50 card-shadow-lg">
-          {models.map((model) => (
-            <button
-              key={model.id}
-              onClick={() => {
-                onModelSelect(model)
-                setIsOpen(false)
-              }}
-              className="w-full p-4 hover:bg-slate-700 transition-all duration-200 flex items-center space-x-3 border-b border-slate-600 last:border-b-0 focus-ring"
-            >
-              <div className="p-2.5 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg shadow-lg">
-                <Cpu className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1 text-left">
-                <div className="flex items-center space-x-2 mb-1">
-                  <p className="text-white font-semibold">{model.name}</p>
-                  <span className="px-2 py-1 bg-blue-600 text-blue-100 text-xs font-medium rounded-full border border-blue-500">
-                    {model.size}
-                  </span>
+      {isExpanded && (
+        <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 space-y-4 card-shadow">
+          {models.length === 0 ? (
+            <div className="text-center py-8">
+              <Loader2 className="w-8 h-8 mx-auto mb-3 text-slate-500 animate-spin" />
+              <p className="text-slate-400 font-medium">Lade Modelle...</p>
+            </div>
+          ) : (
+            models.map((model) => (
+              <button
+                key={model.id}
+                onClick={() => {
+                  onModelSelect(model)
+                  setIsExpanded(false)
+                }}
+                className={`w-full p-4 rounded-lg border-2 transition-all duration-200 text-left ${
+                  selectedModel.id === model.id
+                    ? "bg-purple-900/30 border-purple-500 text-purple-200"
+                    : "bg-slate-700 border-slate-600 text-slate-200 hover:border-purple-500 hover:bg-slate-600"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-lg">{model.name}</h3>
+                  <div className="flex items-center space-x-2">
+                    <Check
+                      className={`w-4 h-4 ${
+                        selectedModel.id === model.id ? "text-purple-400" : "text-transparent"
+                      }`}
+                    />
+                  </div>
                 </div>
-                <p className="text-slate-300 text-sm mb-1">{model.description}</p>
-                <p className="text-slate-400 text-xs font-medium">
-                  {model.parameters} • {model.provider}
-                </p>
-              </div>
-              {model.id === selectedModel.id && (
-                <div className="p-1 bg-green-500 rounded-full">
-                  <Check className="w-4 h-4 text-white" />
+                <p className="text-sm text-slate-300 mb-2">{model.description}</p>
+                <div className="grid grid-cols-3 items-center text-xs">
+                  <span className="text-slate-400 justify-self-start">{model.size}</span>
+                  <span className="justify-self-center text-xs bg-slate-600 px-2 py-1 rounded border border-slate-500">{model.parameters}</span>
+                  <span className="text-slate-400 justify-self-end">{model.provider}</span>
                 </div>
-              )}
-            </button>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TemplateSystem({ onTemplateSelect, templates }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  const getCategoryColor = (category) => {
+    switch (category) {
+      case 'medical': return 'from-green-500 to-emerald-500'
+      case 'legal': return 'from-blue-500 to-cyan-500'
+      case 'government': return 'from-orange-500 to-red-500'
+      default: return 'from-purple-500 to-blue-500'
+    }
+  }
+
+  const getCategoryBadgeColor = (category) => {
+    switch (category) {
+      case 'medical': return 'bg-green-900/30 border-green-600 text-green-300'
+      case 'legal': return 'bg-blue-900/30 border-blue-600 text-blue-300'
+      case 'government': return 'bg-orange-900/30 border-orange-600 text-orange-300'
+      default: return 'bg-purple-900/30 border-purple-600 text-purple-300'
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full p-4 bg-slate-800 border-2 border-slate-700 hover:border-purple-500 hover:bg-slate-750 rounded-xl transition-all duration-200 flex items-center justify-between card-shadow focus-ring"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-gradient-to-br from-purple-500 to-blue-500 rounded-lg">
+            <FileText className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-white font-semibold">Vorlagen</span>
+        </div>
+        <ChevronDown
+          className={`w-5 h-5 text-slate-400 transform transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {isExpanded && (
+        <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 space-y-6 card-shadow">
+          {Object.entries(templates).map(([category, categoryTemplates]) => (
+            <div key={category} className="space-y-3">
+              <h3 className="text-white font-semibold capitalize">{category}</h3>
+              <div className="grid grid-cols-1 gap-3">
+                {Object.entries(categoryTemplates).map(([templateId, description]) => (
+                  <button
+                    key={templateId}
+                    onClick={() => {
+                      onTemplateSelect({ id: templateId, description, category })
+                      setIsExpanded(false)
+                    }}
+                    className="p-3 bg-slate-700 border-2 border-slate-600 rounded-lg hover:border-purple-500 hover:bg-slate-600 transition-all duration-200 text-left"
+                  >
+                    <span className={`text-xs px-2 py-1 rounded border block text-left mb-2 ${getCategoryBadgeColor(category)}`}>{category}</span>
+                    <span className="text-slate-200 font-medium capitalize block mb-1">{templateId}</span>
+                    <p className="text-slate-300 text-sm mt-1">{description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -118,133 +187,38 @@ function ModelSelector({ selectedModel, onModelSelect, models }) {
   )
 }
 
-/**
- * @param {{onTemplateSelect: Function, templates: any}} props
- */
-function TemplateSystem({ onTemplateSelect, templates }) {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState("all")
-
-  const categories = ["all", "medical", "legal", "government", "business", "creative"]
-
-  const getCategoryColor = (category) => {
-    const colors = {
-      medical: "from-red-500 to-pink-500",
-      legal: "from-blue-500 to-indigo-500",
-      government: "from-green-500 to-emerald-500",
-      business: "from-purple-500 to-violet-500",
-      creative: "from-orange-500 to-yellow-500",
-    }
-    return colors[category] || "from-gray-500 to-gray-600"
-  }
-
-  const getCategoryBadgeColor = (category) => {
-    const colors = {
-      medical: "bg-red-600 text-red-100 border-red-500",
-      legal: "bg-blue-600 text-blue-100 border-blue-500",
-      government: "bg-green-600 text-green-100 border-green-500",
-      business: "bg-purple-600 text-purple-100 border-purple-500",
-      creative: "bg-orange-600 text-orange-100 border-orange-500",
-    }
-    return colors[category] || "bg-gray-600 text-gray-100 border-gray-500"
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center space-x-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Vorlagen suchen..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 bg-slate-800 border-2 border-slate-700 rounded-lg text-white placeholder-slate-400 focus:border-purple-500 focus:outline-none transition-colors card-shadow"
-          />
-        </div>
-        <button className="p-3 bg-slate-800 border-2 border-slate-700 rounded-lg hover:border-purple-500 hover:bg-slate-750 transition-all duration-200 card-shadow focus-ring">
-          <Filter className="w-4 h-4 text-slate-300" />
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {categories.map((category) => (
-          <button
-            key={category}
-            onClick={() => setSelectedCategory(category)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 border-2 ${
-              selectedCategory === category
-                ? "bg-gradient-to-r from-purple-500 to-blue-500 text-white border-purple-400 shadow-lg"
-                : "bg-slate-800 text-slate-300 border-slate-600 hover:border-slate-500 hover:bg-slate-750"
-            }`}
-          >
-            {category.charAt(0).toUpperCase() + category.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      <div className="space-y-3 max-h-96 overflow-y-auto">
-        {templates && typeof templates === 'object' && Object.entries(templates).map(([category, categoryTemplates]) => {
-          if (selectedCategory !== "all" && category !== selectedCategory) return null;
-          return Object.entries(categoryTemplates).map(([key, template]) => (
-            <button
-              key={`${category}-${key}`}
-              onClick={() => onTemplateSelect({ id: key, name: key, category: category, description: "", prompt: template, preview: "" })}
-              className="w-full p-4 bg-slate-800 border-2 border-slate-700 hover:border-purple-500 hover:bg-slate-750 rounded-xl transition-all duration-200 text-left group card-shadow focus-ring"
-            >
-              <div className="flex items-start space-x-4">
-                <div className={`p-3 bg-gradient-to-br ${getCategoryColor(category)} rounded-lg shadow-lg`}>
-                  <FileText className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center space-x-3 mb-2">
-                    <h3 className="text-white font-semibold text-lg group-hover:text-purple-300 transition-colors">
-                      {key.charAt(0).toUpperCase() + key.slice(1)}
-                    </h3>
-                    <span
-                      className={`px-3 py-1 text-xs font-medium rounded-full border ${getCategoryBadgeColor(category)}`}
-                    >
-                      {category}
-                    </span>
-                  </div>
-                  <p className="text-slate-400 text-sm italic bg-slate-900 p-2 rounded border border-slate-600">
-                    "{template}"
-                  </p>
-                </div>
-              </div>
-            </button>
-          ));
-        })}
-      </div>
-    </div>
-  )
-}
-
-/**
- * @param {{onGenerate: Function, isGenerating: boolean}} props
- */
 function TextGenerator({ onGenerate, isGenerating }) {
   const [prompt, setPrompt] = useState("")
   const [context, setContext] = useState("")
   const [generatedText, setGeneratedText] = useState("")
+  const [streamingText, setStreamingText] = useState("")
   const [showSuccess, setShowSuccess] = useState(false)
   const textareaRef = useRef(null)
 
   const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return
 
+    setStreamingText("")
+    setGeneratedText("")
+    
     try {
-      const result = await onGenerate(prompt, context)
+      const result = await onGenerate(prompt, context, (chunk) => {
+        console.log("🔄 TextGenerator received chunk:", chunk);
+        setStreamingText(chunk)
+      })
       setGeneratedText(result)
+      setStreamingText("")
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 2000)
     } catch (error) {
+      setStreamingText("")
       console.error("Generation failed:", error)
     }
   }
 
   const handleCopy = async () => {
-    const success = await copyToClipboard(generatedText)
+    const textToCopy = streamingText || generatedText
+    const success = await copyToClipboard(textToCopy)
     if (success) {
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 2000)
@@ -252,8 +226,9 @@ function TextGenerator({ onGenerate, isGenerating }) {
   }
 
   const handleExport = (format) => {
+    const textToExport = streamingText || generatedText
     const filename = `generated-text.${format}`
-    downloadAsFile(generatedText, filename, format === "txt" ? "text/plain" : "application/pdf")
+    downloadAsFile(textToExport, filename, format === "txt" ? "text/plain" : "application/pdf")
   }
 
   const handleKeyDown = (e) => {
@@ -313,12 +288,18 @@ function TextGenerator({ onGenerate, isGenerating }) {
         </button>
       </div>
 
-      {generatedText && (
+      {(generatedText || streamingText) && (
         <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-white font-semibold text-lg flex items-center space-x-2">
               <Sparkles className="w-5 h-5 text-purple-400" />
               <span>Generierter Text</span>
+              {streamingText && !generatedText && (
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
+                  <span className="text-purple-400 text-sm font-medium">Generiere...</span>
+                </div>
+              )}
             </h3>
             <div className="flex items-center space-x-3">
               {showSuccess && (
@@ -344,7 +325,7 @@ function TextGenerator({ onGenerate, isGenerating }) {
             </div>
           </div>
           <div className="bg-slate-900 border-2 border-slate-600 rounded-lg p-4">
-            <pre className="text-slate-200 whitespace-pre-wrap font-mono text-sm leading-relaxed">{generatedText}</pre>
+            <pre className="text-slate-200 whitespace-pre-wrap font-mono text-sm leading-relaxed">{streamingText || generatedText}</pre>
           </div>
         </div>
       )}
@@ -352,9 +333,6 @@ function TextGenerator({ onGenerate, isGenerating }) {
   )
 }
 
-/**
- * @param {{settings: any, onSettingsChange: Function}} props
- */
 function SettingsPanel({ settings, onSettingsChange }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -426,48 +404,44 @@ function SettingsPanel({ settings, onSettingsChange }) {
             min={0}
             max={2}
             step={0.1}
-            onChange={(value) => handleSettingChange("temperature", value)}
-            description="Steuert die Zufälligkeit. Höhere Werte machen die Ausgabe kreativer."
+            onChange={(value) => handleSettingChange('temperature', value)}
+            description="Kreativität der Antworten (0 = konservativ, 2 = sehr kreativ)"
           />
-
           <SettingSlider
             label="Max Tokens"
             value={settings.maxTokens}
-            min={1}
+            min={10}
             max={4000}
-            step={1}
-            onChange={(value) => handleSettingChange("maxTokens", value)}
-            description="Maximale Anzahl der zu generierenden Tokens."
+            step={10}
+            onChange={(value) => handleSettingChange('maxTokens', value)}
+            description="Maximale Anzahl der generierten Tokens"
           />
-
           <SettingSlider
             label="Top P"
             value={settings.topP}
             min={0}
             max={1}
-            step={0.01}
-            onChange={(value) => handleSettingChange("topP", value)}
-            description="Steuert die Vielfalt durch Nucleus-Sampling."
+            step={0.05}
+            onChange={(value) => handleSettingChange('topP', value)}
+            description="Nukleus-Sampling für bessere Textqualität"
           />
-
           <SettingSlider
-            label="Frequenz-Strafe"
+            label="Frequency Penalty"
             value={settings.frequencyPenalty}
-            min={-2}
+            min={0}
             max={2}
             step={0.1}
-            onChange={(value) => handleSettingChange("frequencyPenalty", value)}
-            description="Reduziert die Wiederholung häufiger Tokens."
+            onChange={(value) => handleSettingChange('frequencyPenalty', value)}
+            description="Reduziert Wiederholungen im Text"
           />
-
           <SettingSlider
-            label="Präsenz-Strafe"
+            label="Presence Penalty"
             value={settings.presencePenalty}
-            min={-2}
+            min={0}
             max={2}
             step={0.1}
-            onChange={(value) => handleSettingChange("presencePenalty", value)}
-            description="Reduziert die Wiederholung beliebiger Tokens."
+            onChange={(value) => handleSettingChange('presencePenalty', value)}
+            description="Ermutigt zu neuen Themen"
           />
         </div>
       )}
@@ -475,9 +449,6 @@ function SettingsPanel({ settings, onSettingsChange }) {
   )
 }
 
-/**
- * @param {{generations: any[], onGenerationSelect: Function, onGenerationDelete: Function}} props
- */
 function HistoryPanel({ generations, onGenerationSelect, onGenerationDelete }) {
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -530,40 +501,41 @@ function HistoryPanel({ generations, onGenerationSelect, onGenerationDelete }) {
               onClick={() => onGenerationSelect(generation)}
               className="p-4 bg-slate-800 border-2 border-slate-700 hover:border-purple-500 hover:bg-slate-750 rounded-xl transition-all duration-200 cursor-pointer group card-shadow"
             >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex-1">
-                  <p className="text-white text-sm font-semibold line-clamp-2 mb-2">{generation.prompt}</p>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-purple-300 bg-purple-900/30 px-2 py-1 rounded border border-purple-600 font-medium">
-                      {generation.model}
-                    </span>
-                    <span className="text-xs text-slate-400">•</span>
-                    <span className="text-xs text-slate-300 font-medium">{formatDate(generation.timestamp)}</span>
-                  </div>
+              <div className="flex items-start justify-between mb-3 w-full">
+                <div className="flex flex-col flex-1 min-w-0">
+                  <span className="text-xs text-purple-300 bg-purple-900/30 px-2 py-1 rounded border border-purple-600 font-medium w-fit mb-1">{generation.model}</span>
+                  <span className="text-xs text-slate-300 font-medium mb-1">{formatDate(generation.timestamp)}</span>
                 </div>
-                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center space-x-1 ml-2">
                   <button
-                    onClick={(e) => handleCopy(generation.result, e)}
+                    onClick={(e) => { e.stopPropagation(); handleCopy(generation.result, e); }}
                     className="p-2 hover:bg-slate-600 rounded-lg border border-slate-600 hover:border-purple-500 transition-colors"
                     title="Ergebnis kopieren"
                   >
-                    <Copy className="w-3 h-3 text-slate-300" />
+                    <Copy className="w-4 h-4 text-slate-300" />
                   </button>
                   <button
                     onClick={(e) => handleDelete(generation.id, e)}
                     className="p-2 hover:bg-red-600/20 rounded-lg border border-slate-600 hover:border-red-500 transition-colors"
                     title="Löschen"
                   >
-                    <Trash2 className="w-3 h-3 text-red-400" />
+                    <Trash2 className="w-4 h-4 text-red-400" />
                   </button>
                 </div>
               </div>
+              <p className="text-white text-sm font-semibold line-clamp-2 mb-2">{generation.prompt}</p>
               <div className="bg-slate-900 border border-slate-600 rounded-lg p-3 mb-3">
                 <p className="text-slate-300 text-xs line-clamp-2 font-mono">{generation.result}</p>
+                {generation.isStreaming && (
+                  <div className="flex items-center space-x-2 mt-2">
+                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
+                    <span className="text-xs text-purple-400 font-medium">Generiere...</span>
+                  </div>
+                )}
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-blue-300 bg-blue-900/30 px-2 py-1 rounded border border-blue-600 font-medium">
-                  {generation.tokens} tokens
+                  {generation.tokens || 0} tokens
                 </span>
                 <span className="text-green-300 bg-green-900/30 px-2 py-1 rounded border border-green-600 font-medium">
                   {formatTime(generation.processingTime)}
@@ -577,10 +549,9 @@ function HistoryPanel({ generations, onGenerationSelect, onGenerationDelete }) {
   )
 }
 
-/**
- * @param {{statistics: any}} props
- */
 function Statistics({ statistics }) {
+  console.log("📊 Statistics component received:", statistics);
+  
   const stats = [
     {
       label: "Gesamte Generierungen",
@@ -676,61 +647,6 @@ function Statistics({ statistics }) {
   )
 }
 
-// TestDropdown: Minimal funktionierendes Avatar-Menü
-function TestDropdown() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (ref.current && !ref.current.contains(event.target)) {
-        setOpen(false);
-      }
-    }
-    if (open) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open]);
-
-  return (
-    <div ref={ref} style={{ position: 'relative', zIndex: 1000, margin: 32 }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          background: '#222',
-          color: '#fff',
-          border: 'none',
-          borderRadius: 8,
-          padding: 12,
-          cursor: 'pointer',
-          fontSize: 16
-        }}
-      >
-        <User className="w-5 h-5" />
-        <span style={{ marginLeft: 8 }}>Avatar-Menü</span>
-        <ChevronDown className="w-4 h-4 ml-2" />
-      </button>
-      {open && (
-        <div style={{
-          position: 'absolute',
-          right: 0,
-          top: 48,
-          background: '#222',
-          color: '#fff',
-          borderRadius: 8,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-          padding: 16,
-          zIndex: 1001
-        }}>
-          <div style={{ marginBottom: 8, cursor: 'pointer' }}>Benutzerverwaltung</div>
-          <div style={{ cursor: 'pointer' }}>Abmelden</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function AITextPlatform({ user, onLogout }) {
   const [selectedModel, setSelectedModel] = useState({
     id: "tinyllama",
@@ -755,6 +671,12 @@ export default function AITextPlatform({ user, onLogout }) {
   })
   const [activePage, setActivePage] = useState('dashboard');
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [statistics, setStatistics] = useState({
+    totalGenerations: 0,
+    tokensUsed: 0,
+    averageProcessingTime: 0,
+    successRate: 98.5,
+  });
   const userMenuRef = useRef(null);
 
   // Click-away handler für das User-Menü
@@ -777,6 +699,35 @@ export default function AITextPlatform({ user, onLogout }) {
     fetchModels();
     fetchTemplates();
   }, []);
+
+  // Update statistics when generations change
+  useEffect(() => {
+    console.log("🔄 Generations changed, updating statistics:", generations);
+    const newStats = {
+      totalGenerations: generations.length,
+      tokensUsed: generations.reduce((sum, gen) => sum + (gen.tokens || 0), 0),
+      averageProcessingTime: (() => {
+        const validGenerations = generations.filter(gen => gen.processingTime !== undefined && gen.processingTime !== null && !isNaN(gen.processingTime));
+        return validGenerations.length > 0 ? 
+          validGenerations.reduce((sum, gen) => sum + gen.processingTime, 0) / validGenerations.length : 0;
+      })(),
+      successRate: 98.5,
+    };
+    console.log("📊 New statistics:", newStats);
+    setStatistics(newStats);
+  }, [generations]);
+
+  // Safety check for user object
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white text-lg">Lade Benutzerdaten...</p>
+        </div>
+      </div>
+    );
+  }
 
   const fetchModels = async () => {
     try {
@@ -808,42 +759,6 @@ export default function AITextPlatform({ user, onLogout }) {
     }
   };
 
-  const handleGenerate = async (prompt, context) => {
-    setIsGenerating(true)
-
-    try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/generate`, {
-        prompt,
-        model: selectedModel.name,
-        max_tokens: settings.maxTokens,
-        temperature: settings.temperature,
-        template: null,
-        context
-      });
-
-      const result = response.data.generated_text;
-
-      const newGeneration = {
-        id: Date.now().toString(),
-        prompt,
-        result,
-        model: selectedModel.name,
-        timestamp: new Date(),
-        tokens: response.data.tokens_used,
-        processingTime: response.data.processing_time,
-      }
-
-      setGenerations((prev) => [newGeneration, ...prev])
-      setIsGenerating(false)
-
-      return result;
-    } catch (error) {
-      console.error("Generation failed:", error);
-      setIsGenerating(false);
-      throw error;
-    }
-  }
-
   const handleTemplateSelect = (template) => {
     console.log("Template selected:", template)
   }
@@ -856,11 +771,167 @@ export default function AITextPlatform({ user, onLogout }) {
     setGenerations((prev) => prev.filter((gen) => gen.id !== id))
   }
 
-  const mockStatistics = {
-    totalGenerations: generations.length,
-    tokensUsed: generations.reduce((sum, gen) => sum + gen.tokens, 0),
-    averageProcessingTime: generations.length > 0 ? generations.reduce((sum, gen) => sum + gen.processingTime, 0) / generations.length : 0,
-    successRate: 98.5,
+  // Test function to manually add a generation
+  const testAddGeneration = () => {
+    console.log("🧪 Adding test generation...");
+    const testGeneration = {
+      id: Date.now().toString(),
+      prompt: "Test prompt",
+      result: "Test result",
+      model: "test-model",
+      timestamp: new Date(),
+      tokens: 150,
+      processingTime: 2.5,
+      isStreaming: false
+    };
+    setGenerations(prev => [testGeneration, ...prev]);
+  };
+
+  const handleGenerate = async (prompt, context, onStreamChunk) => {
+    console.log("🚀 AITextPlatform handleGenerate called with:", { prompt, context, hasCallback: !!onStreamChunk });
+    setIsGenerating(true)
+
+    try {
+      // Use streaming endpoint
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/generate/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': axios.defaults.headers.common['Authorization'] || '',
+        },
+        body: JSON.stringify({
+          prompt,
+          model: selectedModel.name,
+          max_tokens: settings.maxTokens,
+          temperature: settings.temperature,
+          template: null,
+          context
+        })
+      });
+
+      console.log("📡 Response status:", response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let tokensUsed = 0;
+      let processingTime = 0;
+      let generationId = null;
+      let chunkCount = 0;
+
+      // Create a temporary generation for streaming
+      const tempGenerationId = Date.now().toString();
+      const tempGeneration = {
+        id: tempGenerationId,
+        prompt,
+        result: '',
+        model: selectedModel.name,
+        timestamp: new Date(),
+        tokens: 0,
+        processingTime: 0,
+        isStreaming: true
+      };
+
+      setGenerations((prev) => [tempGeneration, ...prev]);
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) break;
+          
+          const chunk = decoder.decode(value);
+          console.log("📦 Raw chunk received:", chunk);
+          const lines = chunk.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                console.log("🟢 FULL DATA OBJECT:", data);
+                if (data.done === true) {
+                  console.log("🟢 DATA.DONE erkannt!", data);
+                }
+                console.log("📝 Parsed data:", data);
+                
+                if (data.chunk) {
+                  chunkCount++;
+                  fullText += data.chunk;
+                  console.log(`📝 Chunk ${chunkCount}: "${data.chunk}" -> Full text: "${fullText}"`);
+                  
+                  // Update the generation in real-time
+                  setGenerations((prev) => 
+                    prev.map(gen => 
+                      gen.id === tempGenerationId 
+                        ? { ...gen, result: fullText }
+                        : gen
+                    )
+                  );
+                  
+                  // Call the streaming callback for live output
+                  if (onStreamChunk) {
+                    console.log("🔄 Calling onStreamChunk with:", fullText);
+                    onStreamChunk(fullText);
+                  } else {
+                    console.log("⚠️ No onStreamChunk callback provided!");
+                  }
+                }
+                
+                // Robuste done-Erkennung
+                if (data.done === true) {
+                  console.log("🟢 DATA.DONE erkannt!", data);
+                  tokensUsed = data.tokens_used || 0;
+                  processingTime = data.processing_time || 0;
+                  generationId = data.generation_id;
+                  
+                  // Update final generation
+                  setGenerations((prev) => {
+                    console.log("🔄 Updating final generation with tokens:", tokensUsed, "processingTime:", processingTime);
+                    const updated = prev.map(gen =>
+                      gen.id === tempGenerationId
+                        ? {
+                            ...gen,
+                            result: fullText,
+                            tokens: tokensUsed,
+                            processingTime: processingTime,
+                            isStreaming: false
+                          }
+                        : gen
+                    );
+                    // Erzwinge neues Array-Objekt
+                    const newArray = [...updated];
+                    console.log("📝 New generations array:", newArray);
+                    return newArray;
+                  });
+                  setIsGenerating(false);
+                  return fullText;
+                }
+                
+                if (data.error) {
+                  console.error("❌ Error from server:", data.error);
+                  throw new Error(data.error);
+                }
+              } catch (parseError) {
+                console.warn('Failed to parse SSE data:', parseError, 'Line:', line);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      setIsGenerating(false);
+      return fullText;
+    } catch (error) {
+      console.error("Generation failed:", error);
+      setIsGenerating(false);
+      throw error;
+    }
   }
 
   return (
@@ -898,7 +969,7 @@ export default function AITextPlatform({ user, onLogout }) {
                   <User className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <p className="text-white text-sm font-semibold">{user.username || 'Praivio Benutzer'}</p>
+                  <p className="text-white text-sm font-semibold">{user?.username || 'Praivio Benutzer'}</p>
                   <div className="flex items-center space-x-1">
                     <Zap className="w-3 h-3 text-yellow-400" />
                     <p className="text-yellow-300 text-xs font-medium">Lokale Installation</p>
@@ -912,10 +983,10 @@ export default function AITextPlatform({ user, onLogout }) {
                   style={{ zIndex: 1000 }}
                 >
                   <div className="p-4 border-b border-slate-700">
-                    <p className="text-white font-semibold">{user.username}</p>
-                    <p className="text-slate-400 text-xs">{user.role_name}</p>
+                    <p className="text-white font-semibold">{user?.username || 'Praivio Benutzer'}</p>
+                    <p className="text-slate-400 text-xs">{user?.role_name || 'Benutzer'}</p>
                   </div>
-                  {user.role_name === 'admin' && (
+                  {user?.role_name === 'admin' && (
                     <button
                       className="w-full flex items-center px-4 py-3 text-left text-slate-200 hover:bg-slate-700 transition-colors"
                       onClick={() => {
@@ -965,7 +1036,21 @@ export default function AITextPlatform({ user, onLogout }) {
                 <p className="text-slate-300 font-medium">Erstellen Sie professionelle Inhalte mit KI-gestützter Textgenerierung</p>
               </div>
 
-              <TextGenerator onGenerate={handleGenerate} isGenerating={isGenerating} />
+              <TextGenerator
+                onGenerate={(prompt, context, onStreamChunk) => handleGenerate(prompt, context, onStreamChunk)}
+                isGenerating={isGenerating}
+              />
+
+              {/* Test Button */}
+              <div className="mt-4 p-4 bg-red-900/30 border-2 border-red-600 rounded-xl">
+                <button
+                  onClick={testAddGeneration}
+                  className="w-full p-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors"
+                >
+                  🧪 Test: Add Generation (150 tokens, 2.5s)
+                </button>
+                <p className="text-red-300 text-sm mt-2">Klicke um eine Test-Generation hinzuzufügen und zu prüfen, ob die Statistiken aktualisiert werden.</p>
+              </div>
             </div>
           </main>
 
@@ -977,7 +1062,8 @@ export default function AITextPlatform({ user, onLogout }) {
               onGenerationDelete={handleGenerationDelete}
             />
 
-            <Statistics statistics={mockStatistics} />
+            {console.log("🎯 Passing statistics to component:", statistics)}
+            <Statistics statistics={statistics} />
           </aside>
         </div>
 
@@ -987,4 +1073,4 @@ export default function AITextPlatform({ user, onLogout }) {
       </main>
     </div>
   )
-}
+} 
