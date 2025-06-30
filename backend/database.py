@@ -135,6 +135,32 @@ class DatabaseManager:
                 )
             """)
             
+            # Chat-Sessions-Tabelle
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,  -- Changed from INTEGER to TEXT for Supabase user IDs
+                    title TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    system_prompt TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Chat-Messages-Tabelle
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id TEXT PRIMARY KEY,
+                    chat_session_id TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                    content TEXT NOT NULL,
+                    generation_id TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (chat_session_id) REFERENCES chat_sessions (id) ON DELETE CASCADE
+                )
+            """)
+            
             # Erstelle Standard-Rollen
             self._create_default_roles(cursor)
             
@@ -499,3 +525,115 @@ class DatabaseManager:
             stats['generations_today'] = cursor.fetchone()[0]
             
             return stats 
+    
+    # Chat-Funktionalität Methoden
+    def create_chat_session(self, session_id: str, user_id: str, title: str, model: str, system_prompt: str = None) -> str:
+        """Erstellt eine neue Chat-Session"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO chat_sessions (id, user_id, title, model, system_prompt)
+                VALUES (?, ?, ?, ?, ?)
+            """, (session_id, user_id, title, model, system_prompt))
+            conn.commit()
+            return session_id
+    
+    def get_chat_sessions(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Holt alle Chat-Sessions eines Benutzers"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT cs.*, 
+                       COUNT(cm.id) as message_count
+                FROM chat_sessions cs
+                LEFT JOIN chat_messages cm ON cs.id = cm.chat_session_id
+                WHERE cs.user_id = ?
+                GROUP BY cs.id
+                ORDER BY cs.updated_at DESC
+                LIMIT ?
+            """, (user_id, limit))
+            
+            sessions = []
+            for row in cursor.fetchall():
+                sessions.append(dict(row))
+            return sessions
+    
+    def get_chat_session(self, session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Holt eine spezifische Chat-Session"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM chat_sessions 
+                WHERE id = ? AND user_id = ?
+            """, (session_id, user_id))
+            
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def update_chat_session_title(self, session_id: str, user_id: str, title: str):
+        """Aktualisiert den Titel einer Chat-Session"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE chat_sessions 
+                SET title = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+            """, (title, session_id, user_id))
+            conn.commit()
+    
+    def delete_chat_session(self, session_id: str, user_id: str) -> bool:
+        """Löscht eine Chat-Session und alle zugehörigen Nachrichten"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM chat_sessions 
+                WHERE id = ? AND user_id = ?
+            """, (session_id, user_id))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def add_chat_message(self, message_id: str, chat_session_id: str, role: str, 
+                        content: str, generation_id: Optional[str] = None) -> str:
+        """Fügt eine neue Nachricht zu einer Chat-Session hinzu"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO chat_messages (id, chat_session_id, role, content, generation_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (message_id, chat_session_id, role, content, generation_id))
+            
+            # Aktualisiere updated_at der Chat-Session
+            cursor.execute("""
+                UPDATE chat_sessions 
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (chat_session_id,))
+            
+            conn.commit()
+            return message_id
+    
+    def get_chat_messages(self, chat_session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Holt alle Nachrichten einer Chat-Session"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM chat_messages 
+                WHERE chat_session_id = ?
+                ORDER BY timestamp ASC
+                LIMIT ?
+            """, (chat_session_id, limit))
+            
+            messages = []
+            for row in cursor.fetchall():
+                messages.append(dict(row))
+            return messages
+    
+    def get_chat_session_with_messages(self, session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Holt eine Chat-Session mit allen Nachrichten"""
+        session = self.get_chat_session(session_id, user_id)
+        if not session:
+            return None
+        
+        messages = self.get_chat_messages(session_id)
+        session['messages'] = messages
+        return session 

@@ -177,3 +177,67 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.now) 
+
+# Chat-Funktionalität Modelle
+class ChatMessage(BaseModel):
+    """Modell für Chat-Nachrichten"""
+    id: str
+    role: str = Field(..., description="'user' oder 'assistant'")
+    content: str = Field(..., min_length=1, max_length=10000, description="Nachrichteninhalt")
+    generation_id: Optional[str] = Field(None, description="Link zur Generierung")
+    timestamp: datetime = Field(default_factory=datetime.now)
+    
+    @validator('role')
+    def validate_role(cls, v):
+        if v not in ['user', 'assistant']:
+            raise ValueError('Role muss "user" oder "assistant" sein')
+        return v
+
+class ChatSessionCreate(BaseModel):
+    """Modell für Chat-Session-Erstellung"""
+    title: str = Field(..., min_length=1, max_length=100, description="Chat-Titel")
+    model: str = Field(..., description="Zu verwendendes Modell")
+    initial_message: Optional[str] = Field(None, description="Erste Nachricht (optional)")
+    system_prompt: Optional[str] = Field(None, description="System-Prompt (optional)")
+
+class ChatSessionUpdate(BaseModel):
+    """Modell für Chat-Session-Update"""
+    title: str = Field(..., min_length=1, max_length=100, description="Chat-Titel")
+    system_prompt: Optional[str] = Field(None, description="System-Prompt (optional)")
+
+class ChatSessionResponse(BaseModel):
+    """Modell für Chat-Session-Response"""
+    id: str
+    title: str
+    model: str
+    system_prompt: Optional[str]
+    message_count: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class ChatMessageRequest(BaseModel):
+    """Modell für Chat-Nachrichten-Request"""
+    content: str = Field(..., min_length=1, max_length=10000, description="Nachrichteninhalt")
+    
+    @validator('content')
+    def sanitize_content(cls, v):
+        # Entferne potenziell gefährliche Inhalte
+        v = re.sub(r'<[^>]+>', '', v)  # HTML-Tags
+        v = re.sub(r'[<>"\']', '', v)  # Gefährliche Zeichen
+        return v.strip()
+
+class ChatSessionWithMessages(BaseModel):
+    """Modell für Chat-Session mit Nachrichten"""
+    id: str
+    title: str
+    model: str
+    system_prompt: Optional[str]
+    messages: List[ChatMessage]
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True 

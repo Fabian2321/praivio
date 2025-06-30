@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Cpu, Check, FileText, Search, Filter, Copy, Download, Loader2, CheckCircle, Sparkles, Settings, Info, Clock, Trash2, History, BarChart3, Zap, TrendingUp, Activity, User, Menu, X, Users, LogOut } from 'lucide-react';
+import { ChevronDown, Cpu, Check, FileText, Search, Filter, Copy, Download, Loader2, CheckCircle, Sparkles, Settings, Info, Clock, Trash2, History, BarChart3, Zap, TrendingUp, Activity, User, Menu, X, Users, LogOut, MessageSquare } from 'lucide-react';
 import axios from 'axios';
+import ChatInterface from './ChatInterface.js';
 
 const formatNumber = (num) => {
   if (num === undefined || num === null || isNaN(num)) {
@@ -696,6 +697,7 @@ export default function AITextPlatform({ user, onLogout }) {
   });
   const userMenuRef = useRef(null);
   const [prompt, setPrompt] = useState("");
+  const [chatMode, setChatMode] = useState(false);
 
   // Click-away handler für das User-Menü
   useEffect(() => {
@@ -950,7 +952,36 @@ export default function AITextPlatform({ user, onLogout }) {
                 <p className="text-slate-300 text-sm font-medium">Sichere, lokale KI-Plattform</p>
               </div>
             </div>
-            <div className="flex items-center space-x-4 relative ml-auto">
+
+            {/* Modus-Umschaltung zentriert */}
+            <div className="flex-1 flex justify-center">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setChatMode(false)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                    !chatMode
+                      ? 'bg-purple-600 text-white shadow-lg'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4 inline mr-2" />
+                  Einzelanfrage
+                </button>
+                <button
+                  onClick={() => setChatMode(true)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                    chatMode
+                      ? 'bg-purple-600 text-white shadow-lg'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4 inline mr-2" />
+                  Chat
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-4 relative ml-4">
               <button
                 className="lg:hidden p-3 bg-slate-800 border-2 border-slate-700 rounded-lg hover:border-purple-500 transition-colors card-shadow"
                 onClick={() => setIsMobileMenuOpen(true)}
@@ -1028,6 +1059,16 @@ export default function AITextPlatform({ user, onLogout }) {
           </aside>
 
           {/* Hauptbereich */}
+          {chatMode ? (
+            /* Chat-Modus */
+            <div className="flex-1">
+              <ChatInterface 
+                selectedModel={selectedModel}
+                onBackToGenerator={() => setChatMode(false)}
+              />
+            </div>
+          ) : (
+            /* Einzelanfrage-Modus */
           <main className="flex-1 p-6 overflow-y-auto bg-slate-800/30">
             <div className="max-w-4xl mx-auto">
               <div className="mb-8 bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
@@ -1046,6 +1087,7 @@ export default function AITextPlatform({ user, onLogout }) {
               />
             </div>
           </main>
+          )}
 
           {/* Rechte Sidebar bleibt erhalten */}
           <aside className="hidden xl:block w-80 bg-slate-900/95 border-l-2 border-slate-700 p-6 space-y-6 overflow-y-auto rounded-none shadow-none">
