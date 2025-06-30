@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Cpu, Check, FileText, Search, Filter, Copy, Download, Loader2, CheckCircle, Sparkles, Settings, Info, Clock, Trash2, History, BarChart3, Zap, TrendingUp, Activity, User, Menu, X, Users, LogOut, MessageSquare } from 'lucide-react';
+import { ChevronDown, Cpu, Check, FileText, Search, Filter, Copy, Download, Loader2, CheckCircle, Sparkles, Settings, Info, Clock, Trash2, History, BarChart3, Zap, TrendingUp, Activity, User, Menu, X, Users, LogOut, MessageSquare, Edit3, Keyboard, AlertCircle, Star } from 'lucide-react';
 import axios from 'axios';
 import ChatInterface from './ChatInterface.js';
 
@@ -206,144 +206,236 @@ function TemplateSystem({ onTemplateSelect, templates }) {
   )
 }
 
-function TextGenerator({ prompt, setPrompt, onGenerate, isGenerating }) {
+function TextGenerator({ prompt, setPrompt, onGenerate, isGenerating, generatedText }) {
   const [context, setContext] = useState("")
-  const [generatedText, setGeneratedText] = useState("")
   const [streamingText, setStreamingText] = useState("")
   const [showSuccess, setShowSuccess] = useState(false)
-  const textareaRef = useRef(null)
+  const [showError, setShowError] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportMenuRef = useRef(null)
+
+  // Click-away handler für das Export-Menü
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
+        setShowExportMenu(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return
+    if (!prompt.trim()) {
+      setErrorMessage("Bitte geben Sie einen Prompt ein.")
+      setShowError(true)
+      setTimeout(() => setShowError(false), 3000)
+      return
+    }
 
     setStreamingText("")
-    setGeneratedText("")
-    
+    setShowError(false)
+    setShowSuccess(false)
+
     try {
       const result = await onGenerate(prompt, context, (chunk) => {
-        console.log("🔄 TextGenerator received chunk:", chunk);
         setStreamingText(chunk)
       })
-      setGeneratedText(result)
-      setStreamingText("")
-      setShowSuccess(true)
-      setTimeout(() => setShowSuccess(false), 2000)
+      
+      if (result) {
+        setShowSuccess(true)
+        setTimeout(() => setShowSuccess(false), 3000)
+      }
     } catch (error) {
-      setStreamingText("")
-      console.error("Generation failed:", error)
+      console.error("Generation error:", error)
+      setErrorMessage(error.message || "Ein Fehler ist aufgetreten.")
+      setShowError(true)
+      setTimeout(() => setShowError(false), 3000)
     }
   }
 
   const handleCopy = async () => {
-    const textToCopy = streamingText || generatedText
-    const success = await copyToClipboard(textToCopy)
-    if (success) {
-      setShowSuccess(true)
-      setTimeout(() => setShowSuccess(false), 2000)
+    const textToCopy = generatedText || streamingText
+    if (textToCopy) {
+      try {
+        await navigator.clipboard.writeText(textToCopy)
+        setShowSuccess(true)
+        setTimeout(() => setShowSuccess(false), 2000)
+      } catch (err) {
+        console.error('Failed to copy: ', err)
+      }
     }
   }
 
   const handleExport = (format) => {
-    const textToExport = streamingText || generatedText
-    const filename = `generated-text.${format}`
-    downloadAsFile(textToExport, filename, format === "txt" ? "text/plain" : "application/pdf")
+    const textToExport = generatedText || streamingText
+    if (textToExport) {
+      downloadAsFile(textToExport, `generated-text.${format}`, format)
+    }
+    setShowExportMenu(false)
   }
 
   const handleKeyDown = (e) => {
-    if (e.ctrlKey && e.key === "Enter") {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       handleGenerate()
     }
   }
 
+  // Display the final generated text or streaming text
+  const displayText = generatedText || streamingText
+
   return (
     <div className="space-y-6">
-      <div className="space-y-6">
-        <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
-          <label className="block text-white font-semibold text-lg mb-3">Anfrage</label>
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Geben Sie Ihre Anfrage hier ein... (Strg+Enter zum Generieren)"
-            className="w-full h-32 p-4 bg-slate-900 border-2 border-slate-600 rounded-lg text-white placeholder-slate-400 resize-none focus:border-purple-500 focus:outline-none transition-colors font-mono"
-          />
-          <div className="flex justify-between items-center mt-3">
-            <span className="text-slate-300 text-sm font-medium">{prompt.length} Zeichen</span>
-            <span className="text-slate-400 text-xs bg-slate-700 px-2 py-1 rounded border border-slate-600">
-              Strg+Enter zum Generieren
-            </span>
+      {/* Prompt Input */}
+      <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-white flex items-center space-x-2">
+            <Edit3 className="w-5 h-5 text-purple-400" />
+            <span>Prompt</span>
+          </h3>
+          <div className="flex items-center space-x-2 text-slate-400 text-sm">
+            <Keyboard className="w-4 h-4" />
+            <span>⌘+Enter zum Generieren</span>
           </div>
         </div>
-
-        <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
-          <label className="block text-white font-semibold text-lg mb-3">Kontext (Optional)</label>
-          <textarea
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            placeholder="Zusätzliche Informationen oder Anweisungen..."
-            className="w-full h-20 p-4 bg-slate-900 border-2 border-slate-600 rounded-lg text-white placeholder-slate-400 resize-none focus:border-purple-500 focus:outline-none transition-colors font-mono"
-          />
+        
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Beschreiben Sie, was Sie generieren möchten..."
+          className="w-full h-32 bg-slate-900 border-2 border-slate-600 rounded-lg p-4 text-white placeholder-slate-400 resize-none focus:border-purple-500 focus:outline-none transition-colors"
+        />
+        
+        <div className="flex items-center justify-between mt-4">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating || !prompt.trim()}
+              className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-all duration-200 ${
+                isGenerating || !prompt.trim()
+                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 shadow-lg hover:shadow-xl transform hover:scale-105'
+              }`}
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Generiere...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Generieren</span>
+                </>
+              )}
+            </button>
+            
+            {showSuccess && (
+              <div className="flex items-center space-x-2 text-green-400">
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">Erfolgreich!</span>
+              </div>
+            )}
+            
+            {showError && (
+              <div className="flex items-center space-x-2 text-red-400">
+                <AlertCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">{errorMessage}</span>
+              </div>
+            )}
+          </div>
+          
+          <div className="text-slate-400 text-sm">
+            {prompt.length} Zeichen
+          </div>
         </div>
-
-        <button
-          onClick={handleGenerate}
-          disabled={!prompt.trim() || isGenerating}
-          className="w-full p-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-slate-600 disabled:to-slate-700 text-white font-semibold text-lg rounded-xl transition-all duration-200 flex items-center justify-center space-x-3 disabled:cursor-not-allowed border-2 border-purple-500 hover:border-purple-400 disabled:border-slate-600 card-shadow-lg"
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="w-6 h-6 animate-spin" />
-              <span>Generiere...</span>
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-6 h-6" />
-              <span>Text Generieren</span>
-            </>
-          )}
-        </button>
       </div>
 
-      {(generatedText || streamingText) && (
+      {/* Context Input */}
+      <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
+        <h3 className="text-xl font-bold text-white mb-4 flex items-center space-x-2">
+          <FileText className="w-5 h-5 text-blue-400" />
+          <span>Kontext (Optional)</span>
+        </h3>
+        <textarea
+          value={context}
+          onChange={(e) => setContext(e.target.value)}
+          placeholder="Zusätzlicher Kontext für bessere Ergebnisse..."
+          className="w-full h-24 bg-slate-900 border-2 border-slate-600 rounded-lg p-4 text-white placeholder-slate-400 resize-none focus:border-blue-500 focus:outline-none transition-colors"
+        />
+      </div>
+
+      {/* Generated Text Output */}
+      {displayText && (
         <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-white font-semibold text-lg flex items-center space-x-2">
-              <Sparkles className="w-5 h-5 text-purple-400" />
+            <h3 className="text-xl font-bold text-white flex items-center space-x-2">
+              <Star className="w-5 h-5 text-green-400" />
               <span>Generierter Text</span>
-              {streamingText && !generatedText && (
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
-                  <span className="text-purple-400 text-sm font-medium">Generiere...</span>
+              {isGenerating && (
+                <div className="flex items-center space-x-2 text-yellow-400 text-sm">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Streaming...</span>
                 </div>
               )}
             </h3>
-            <div className="flex items-center space-x-3">
-              {showSuccess && (
-                <div className="flex items-center space-x-2 text-green-400 bg-green-900/30 px-3 py-1 rounded-lg border border-green-600">
-                  <CheckCircle className="w-4 h-4" />
-                  <span className="text-sm font-medium">Erfolgreich!</span>
-                </div>
-              )}
+            
+            <div className="flex items-center space-x-2">
               <button
                 onClick={handleCopy}
-                className="p-2.5 bg-slate-700 border-2 border-slate-600 rounded-lg hover:border-purple-500 hover:bg-slate-600 transition-all duration-200 focus-ring"
-                title="In Zwischenablage kopieren"
+                className="flex items-center space-x-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
               >
-                <Copy className="w-4 h-4 text-slate-300" />
+                <Copy className="w-4 h-4" />
+                <span>Kopieren</span>
               </button>
-              <button
-                onClick={() => handleExport("txt")}
-                className="p-2.5 bg-slate-700 border-2 border-slate-600 rounded-lg hover:border-purple-500 hover:bg-slate-600 transition-all duration-200 focus-ring"
-                title="Als TXT herunterladen"
-              >
-                <Download className="w-4 h-4 text-slate-300" />
-              </button>
+              
+              <div className="relative" ref={exportMenuRef}>
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Export</span>
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                
+                {showExportMenu && (
+                  <div className="absolute right-0 top-12 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
+                    <button
+                      onClick={() => handleExport('txt')}
+                      className="w-full flex items-center px-4 py-3 text-left text-slate-200 hover:bg-slate-700 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Als TXT exportieren
+                    </button>
+                    <button
+                      onClick={() => handleExport('md')}
+                      className="w-full flex items-center px-4 py-3 text-left text-slate-200 hover:bg-slate-700 transition-colors"
+                    >
+                      <FileText className="w-4 h-4 mr-2" />
+                      Als Markdown exportieren
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+          
           <div className="bg-slate-900 border-2 border-slate-600 rounded-lg p-4">
-            <pre className="text-slate-200 whitespace-pre-wrap font-mono text-sm leading-relaxed">{streamingText || generatedText}</pre>
+            <pre className="text-white whitespace-pre-wrap font-sans text-sm leading-relaxed">
+              {displayText}
+            </pre>
+          </div>
+          
+          <div className="flex items-center justify-between mt-4 text-slate-400 text-sm">
+            <span>{displayText.length} Zeichen generiert</span>
+            <span>{displayText.split(' ').length} Wörter</span>
           </div>
         </div>
       )}
@@ -698,6 +790,7 @@ export default function AITextPlatform({ user, onLogout }) {
   const userMenuRef = useRef(null);
   const [prompt, setPrompt] = useState("");
   const [chatMode, setChatMode] = useState(false);
+  const [generatedText, setGeneratedText] = useState("");
 
   // Click-away handler für das User-Menü
   useEffect(() => {
@@ -706,36 +799,36 @@ export default function AITextPlatform({ user, onLogout }) {
         setShowUserMenu(false);
       }
     }
-    if (showUserMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+
+    document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showUserMenu]);
+  }, []);
+
+  // Update statistics when generations change
+  useEffect(() => {
+    if (generations.length > 0) {
+      const completedGenerations = generations.filter(gen => !gen.isStreaming);
+      const totalGenerations = completedGenerations.length;
+      const totalTokens = completedGenerations.reduce((sum, gen) => sum + (gen.tokens || 0), 0);
+      const totalProcessingTime = completedGenerations.reduce((sum, gen) => sum + (gen.processingTime || 0), 0);
+      const averageProcessingTime = totalGenerations > 0 ? totalProcessingTime / totalGenerations : 0;
+      
+      setStatistics({
+        totalGenerations,
+        tokensUsed: totalTokens,
+        averageProcessingTime,
+        successRate: 98.5, // Keep this static for now
+      });
+    }
+  }, [generations]);
 
   // Fetch models and templates on component mount
   useEffect(() => {
     fetchModels();
     fetchTemplates();
   }, []);
-
-  // Update statistics when generations change
-  useEffect(() => {
-    console.log("🔄 Generations changed, updating statistics:", generations);
-    const newStats = {
-      totalGenerations: generations.length,
-      tokensUsed: generations.reduce((sum, gen) => sum + (gen.tokens || 0), 0),
-      averageProcessingTime: (() => {
-        const validGenerations = generations.filter(gen => gen.processingTime !== undefined && gen.processingTime !== null && !isNaN(gen.processingTime));
-        return validGenerations.length > 0 ? 
-          validGenerations.reduce((sum, gen) => sum + gen.processingTime, 0) / validGenerations.length : 0;
-      })(),
-      successRate: 98.5,
-    };
-    console.log("📊 New statistics:", newStats);
-    setStatistics(newStats);
-  }, [generations]);
 
   // Safety check for user object
   if (!user) {
@@ -794,6 +887,7 @@ export default function AITextPlatform({ user, onLogout }) {
   const handleGenerate = async (prompt, context, onStreamChunk) => {
     console.log("🚀 AITextPlatform handleGenerate called with:", { prompt, context, hasCallback: !!onStreamChunk });
     setIsGenerating(true)
+    setGeneratedText(""); // Reset generated text
 
     try {
       // Use streaming endpoint
@@ -801,7 +895,6 @@ export default function AITextPlatform({ user, onLogout }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': axios.defaults.headers.common['Authorization'] || '',
         },
         body: JSON.stringify({
           prompt,
@@ -862,10 +955,10 @@ export default function AITextPlatform({ user, onLogout }) {
                 }
                 console.log("📝 Parsed data:", data);
                 
-                if (data.chunk) {
+                if (data.response) {
                   chunkCount++;
-                  fullText += data.chunk;
-                  console.log(`📝 Chunk ${chunkCount}: "${data.chunk}" -> Full text: "${fullText}"`);
+                  fullText += data.response;
+                  console.log(`📝 Chunk ${chunkCount}: "${data.response}" -> Full text: "${fullText}"`);
                   
                   // Update the generation in real-time
                   setGenerations((prev) => 
@@ -875,6 +968,9 @@ export default function AITextPlatform({ user, onLogout }) {
                         : gen
                     )
                   );
+                  
+                  // Update generated text state
+                  setGeneratedText(fullText);
                   
                   // Call the streaming callback for live output
                   if (onStreamChunk) {
@@ -888,9 +984,16 @@ export default function AITextPlatform({ user, onLogout }) {
                 // Robuste done-Erkennung
                 if (data.done === true) {
                   console.log("🟢 DATA.DONE erkannt!", data);
-                  tokensUsed = data.tokens_used || 0;
+                  
+                  // Extract token count from tokens_used (Backend format)
+                  tokensUsed = data.tokens_used || data.eval_count || 0;
+                  
+                  // Extract processing time from processing_time (Backend format)
                   processingTime = data.processing_time || 0;
+                  
                   generationId = data.generation_id;
+                  
+                  console.log("📊 Extracted data:", { tokensUsed, processingTime, generationId });
                   
                   // Update final generation
                   setGenerations((prev) => {
@@ -911,6 +1014,10 @@ export default function AITextPlatform({ user, onLogout }) {
                     console.log("📝 New generations array:", newArray);
                     return newArray;
                   });
+                  
+                  // Ensure generated text is saved
+                  setGeneratedText(fullText);
+                  
                   setIsGenerating(false);
                   return fullText;
                 }
@@ -1084,6 +1191,7 @@ export default function AITextPlatform({ user, onLogout }) {
                 setPrompt={setPrompt}
                 onGenerate={(prompt, context, onStreamChunk) => handleGenerate(prompt, context, onStreamChunk)}
                 isGenerating={isGenerating}
+                generatedText={generatedText}
               />
             </div>
           </main>

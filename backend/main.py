@@ -384,6 +384,12 @@ async def stream_ollama_response(model, prompt, options=None):
     logger.info(f"[Ollama] Prompt: {prompt}")
     logger.info(f"[Ollama] Options: {options}")
     logger.info(f"[Ollama] Request JSON: {ollama_request}")
+    
+    start_time = datetime.now()
+    tokens_used = 0
+    full_response = ""
+    done_sent = False
+    
     try:
         async with httpx.AsyncClient(base_url=OLLAMA_BASE_URL, timeout=300.0) as client:
             async with client.stream("POST", "/api/generate", json=ollama_request) as response:
@@ -393,9 +399,58 @@ async def stream_ollama_response(model, prompt, options=None):
                     logger.error(f"[Ollama] Error: {error_text}")
                     yield f"data: {json.dumps({'error': 'LLM service error'})}\n\n"
                     return
+                
                 async for line in response.aiter_lines():
                     if line.strip():
-                        yield f"data: {line}\n\n"
+                        # Parse the JSON data from Ollama
+                        try:
+                            data = json.loads(line)
+                            
+                            # Check if this is a done message
+                            if data.get('done', False):
+                                done_sent = True
+                                # Extract token count from the done message
+                                if 'eval_count' in data:
+                                    tokens_used = data['eval_count']
+                            
+                            # Extract response text
+                            if 'response' in data:
+                                full_response += data['response']
+                            
+                            # Extract token count (update if available)
+                            if 'eval_count' in data:
+                                tokens_used = data['eval_count']
+                            
+                            # Forward the original data
+                            yield f"data: {line}\n\n"
+                            
+                        except json.JSONDecodeError:
+                            # If it's not valid JSON, just forward it as is
+                            yield f"data: {line}\n\n"
+                
+                # Calculate processing time
+                processing_time = (datetime.now() - start_time).total_seconds()
+                
+                # Send final data with tokens and processing time only if done wasn't already sent
+                if not done_sent:
+                    final_data = {
+                        "done": True,
+                        "tokens_used": tokens_used,
+                        "processing_time": processing_time,
+                        "generation_id": None  # No database save for unauthenticated requests
+                    }
+                    
+                    yield f"data: {json.dumps(final_data)}\n\n"
+                else:
+                    # If done was already sent, send additional data with our calculated values
+                    additional_data = {
+                        "tokens_used": tokens_used,
+                        "processing_time": processing_time,
+                        "generation_id": None
+                    }
+                    
+                    yield f"data: {json.dumps(additional_data)}\n\n"
+                
     except Exception as e:
         print(f"[Ollama/PRINT] Exception: {e}")
         print(f"[Ollama/PRINT] Request JSON (on exception): {ollama_request}")
@@ -405,8 +460,40 @@ async def stream_ollama_response(model, prompt, options=None):
         return
 
 @app.post("/generate/stream")
-async def generate_text_stream(request: TextGenerationRequest, api_request: Request, current_user: Dict[str, Any] = Depends(check_rate_limit)):
+async def generate_text_stream(request: TextGenerationRequest, api_request: Request):
     """Einheitlicher Streaming-Endpoint für Einzelanfrage"""
+    # KEIN current_user, KEIN supabase_auth, KEIN check_rate_limit!
+    sanitized_prompt = security_manager.sanitize_input(request.prompt)
+    sanitized_context = security_manager.sanitize_input(request.context) if request.context else ""
+    prompt = sanitized_prompt
+    if request.template and sanitized_context:
+        template_instruction = ""
+        if request.template == "arztbericht":
+            template_instruction = "Erstelle einen strukturierten Arztbericht basierend auf den folgenden Informationen:"
+        if template_instruction:
+            prompt = f"{template_instruction}\n\nContext: {sanitized_context}\n\nRequest: {prompt}"
+        else:
+            prompt = f"Context: {sanitized_context}\n\nRequest: {prompt}"
+    options = {
+        "temperature": request.temperature,
+        "num_predict": request.max_tokens,
+        "top_p": request.top_p,
+        "repeat_penalty": 1.0 + request.frequency_penalty if request.frequency_penalty > 0 else 1.0,
+        "presence_penalty": request.presence_penalty
+    }
+    return StreamingResponse(
+        stream_ollama_response(request.model, prompt, options),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        }
+    )
+
+@app.post("/generate/stream/public")
+async def generate_text_stream_public(request: TextGenerationRequest):
+    """Öffentlicher Streaming-Endpoint für Einzelanfrage ohne Authentifizierung"""
     # Prompt bauen (ggf. mit Template)
     sanitized_prompt = security_manager.sanitize_input(request.prompt)
     sanitized_context = security_manager.sanitize_input(request.context) if request.context else ""
@@ -710,36 +797,52 @@ async def send_chat_message(session_id: str, request: ChatMessageRequest):
     print(f'session: {session}')
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+    
     # Add user message
     import uuid
     user_message_id = f"msg_{uuid.uuid4().hex[:16]}"
     db_manager.add_chat_message(user_message_id, session_id, "user", request.content)
+    
     # Kontext bauen (Systemprompt + Verlauf)
     messages = db_manager.get_chat_messages(session_id)
-    context = ""
+    print(f'All messages: {messages}')
+    
+    # Build conversation context
+    conversation_parts = []
+    
+    # Add system prompt if exists
     if session.get('system_prompt'):
-        context += f"System: {session['system_prompt']}\n\n"
-    for msg in messages[:-1]:
+        conversation_parts.append(f"System: {session['system_prompt']}")
+    
+    # Add conversation history (excluding the current user message)
+    for msg in messages[:-1]:  # Exclude the current user message
         role_prefix = "User: " if msg['role'] == 'user' else "Assistant: "
-        context += role_prefix + msg['content'] + "\n\n"
-    print(f'context: {context}')
-    sanitized_prompt = security_manager.sanitize_input(request.content)
-    sanitized_context = security_manager.sanitize_input(context) if context else ""
-    full_prompt = sanitized_prompt
-    if sanitized_context:
-        full_prompt = f"{sanitized_context}\n\nUser: {sanitized_prompt}"
-    print(f'full_prompt: {full_prompt}')
+        conversation_parts.append(role_prefix + msg['content'])
+    
+    # Add current user message
+    conversation_parts.append(f"User: {request.content}")
+    
+    # Join all parts
+    full_prompt = "\n\n".join(conversation_parts)
+    
+    print(f'Full conversation context: {full_prompt}')
+    
+    # Sanitize inputs
+    sanitized_prompt = security_manager.sanitize_input(full_prompt)
+    
     options = {
         "temperature": 0.7,
         "top_p": 0.9,
         "num_predict": 1000
     }
     print(f'options: {options}')
+    
     assistant_message_id = f"msg_{uuid.uuid4().hex[:16]}"
+    
     async def stream_with_save():
         full_response = ""
         try:
-            async for chunk in stream_ollama_response(session['model'], full_prompt, options):
+            async for chunk in stream_ollama_response(session['model'], sanitized_prompt, options):
                 print(f'CHUNK: {chunk}')
                 if chunk.startswith('data: '):
                     try:
@@ -754,6 +857,7 @@ async def send_chat_message(session_id: str, request: ChatMessageRequest):
         finally:
             if full_response.strip():
                 db_manager.add_chat_message(assistant_message_id, session_id, "assistant", full_response.strip())
+    
     return StreamingResponse(
         stream_with_save(),
         media_type="text/event-stream",

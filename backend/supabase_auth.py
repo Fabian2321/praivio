@@ -6,7 +6,7 @@ Validiert Supabase JWT-Tokens im Backend
 import jwt
 import logging
 from typing import Optional, Dict, Any
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import datetime
 
@@ -95,6 +95,64 @@ class SupabaseAuthManager:
                 detail="Authentication failed",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+    
+    async def get_current_user_optional(self, request: Request) -> Optional[Dict[str, Any]]:
+        """Optionale Dependency für Endpunkte, die mit oder ohne Authentifizierung funktionieren"""
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
+        
+        try:
+            token = auth_header.replace("Bearer ", "")
+            payload = self.verify_supabase_token(token)
+            if not payload:
+                return None
+            
+            # Erstelle User-Objekt aus Supabase-Payload
+            user = {
+                'id': payload.get('sub'),  # Supabase User ID
+                'email': payload.get('email'),
+                'role': 'user',  # Standard-Rolle
+                'is_active': True,
+                'username': payload.get('email'),  # Verwende E-Mail als Username
+                'organization': 'Praivio',
+                'permissions': '["generate", "view_statistics", "manage_templates"]'
+            }
+            
+            return user
+            
+        except Exception as e:
+            logger.error(f"Optional authentication error: {e}")
+            return None
+    
+    async def get_current_user_manual(self, request: Request) -> Optional[Dict[str, Any]]:
+        """Manuelle Dependency für Endpunkte ohne HTTPBearer"""
+        auth_header = request.headers.get("authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return None
+        
+        try:
+            token = auth_header.replace("Bearer ", "")
+            payload = self.verify_supabase_token(token)
+            if not payload:
+                return None
+            
+            # Erstelle User-Objekt aus Supabase-Payload
+            user = {
+                'id': payload.get('sub'),  # Supabase User ID
+                'email': payload.get('email'),
+                'role': 'user',  # Standard-Rolle
+                'is_active': True,
+                'username': payload.get('email'),  # Verwende E-Mail als Username
+                'organization': 'Praivio',
+                'permissions': '["generate", "view_statistics", "manage_templates"]'
+            }
+            
+            return user
+            
+        except Exception as e:
+            logger.error(f"Manual authentication error: {e}")
+            return None
     
     def require_permission(self, permission: str):
         """Decorator für Berechtigungsprüfung"""
