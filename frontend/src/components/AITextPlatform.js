@@ -54,6 +54,24 @@ const downloadAsFile = (content, filename, type) => {
   URL.revokeObjectURL(url)
 }
 
+// Definiere die statischen Templates oben im File:
+const staticTemplates = {
+  medical: {
+    arztbericht: "Erstelle einen strukturierten Arztbericht basierend auf den folgenden Informationen:",
+    befund: "Formuliere einen medizinischen Befund für:",
+    anamnese: "Erstelle eine strukturierte Anamnese für:",
+    entlassungsbrief: "Verfasse einen Entlassungsbrief für:"
+  },
+  legal: {
+    gutachten: "Erstelle ein juristisches Kurzgutachten zu folgender Fragestellung:",
+    widerspruch: "Formuliere einen Widerspruch gegen einen Bescheid:"
+  },
+  government: {
+    protokoll: "Erstelle ein Sitzungsprotokoll für eine Behörde:",
+    bescheid: "Formuliere einen Behördenbescheid zum folgenden Sachverhalt:"
+  }
+};
+
 function ModelSelector({ selectedModel, onModelSelect, models }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -168,7 +186,7 @@ function TemplateSystem({ onTemplateSelect, templates }) {
                   <button
                     key={templateId}
                     onClick={() => {
-                      onTemplateSelect({ id: templateId, description, category })
+                      onTemplateSelect({ id: templateId, prompt: description, category })
                       setIsExpanded(false)
                     }}
                     className="p-3 bg-slate-700 border-2 border-slate-600 rounded-lg hover:border-purple-500 hover:bg-slate-600 transition-all duration-200 text-left"
@@ -187,8 +205,7 @@ function TemplateSystem({ onTemplateSelect, templates }) {
   )
 }
 
-function TextGenerator({ onGenerate, isGenerating }) {
-  const [prompt, setPrompt] = useState("")
+function TextGenerator({ prompt, setPrompt, onGenerate, isGenerating }) {
   const [context, setContext] = useState("")
   const [generatedText, setGeneratedText] = useState("")
   const [streamingText, setStreamingText] = useState("")
@@ -678,6 +695,7 @@ export default function AITextPlatform({ user, onLogout }) {
     successRate: 98.5,
   });
   const userMenuRef = useRef(null);
+  const [prompt, setPrompt] = useState("");
 
   // Click-away handler für das User-Menü
   useEffect(() => {
@@ -760,8 +778,8 @@ export default function AITextPlatform({ user, onLogout }) {
   };
 
   const handleTemplateSelect = (template) => {
-    console.log("Template selected:", template)
-  }
+    setPrompt(template.prompt);
+  };
 
   const handleGenerationSelect = (generation) => {
     console.log("Generation selected:", generation)
@@ -1005,7 +1023,7 @@ export default function AITextPlatform({ user, onLogout }) {
           {/* Linke Sidebar: Modell, Vorlagen, Einstellungen */}
           <aside className="hidden xl:block w-80 bg-slate-900/95 border-r-2 border-slate-700 p-6 space-y-6 overflow-y-auto rounded-none shadow-none">
             <ModelSelector selectedModel={selectedModel} onModelSelect={setSelectedModel} models={models} />
-            <TemplateSystem onTemplateSelect={handleTemplateSelect} templates={templates} />
+            <TemplateSystem onTemplateSelect={handleTemplateSelect} templates={staticTemplates} />
             <SettingsPanel settings={settings} onSettingsChange={setSettings} />
           </aside>
 
@@ -1021,6 +1039,8 @@ export default function AITextPlatform({ user, onLogout }) {
               </div>
 
               <TextGenerator
+                prompt={prompt}
+                setPrompt={setPrompt}
                 onGenerate={(prompt, context, onStreamChunk) => handleGenerate(prompt, context, onStreamChunk)}
                 isGenerating={isGenerating}
               />

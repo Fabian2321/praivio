@@ -2,8 +2,7 @@ import React, { useState, useRef } from 'react';
 import { CheckCircle, Copy, Download, Loader2, RotateCcw, Shield, Brain, FileText, Sparkles, Zap } from 'lucide-react';
 
 // Die Komponente erwartet Props: onGenerate(prompt, context) und isGenerating
-export default function TextGenerator({ onGenerate, isGenerating }) {
-  const [prompt, setPrompt] = useState("");
+export default function TextGenerator({ prompt, setPrompt, onGenerate, isGenerating }) {
   const [context, setContext] = useState("");
   const [generatedText, setGeneratedText] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
