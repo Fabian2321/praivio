@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, MessageSquare, User, Bot, Edit3, Trash2, Plus, ArrowLeft, Settings } from 'lucide-react';
+import { Send, Loader2, MessageSquare, User, Bot, Edit3, Trash2, Plus, ArrowLeft, Settings, Mic, MicOff } from 'lucide-react';
 import axios from 'axios';
 
 export default function ChatInterface({ selectedModel, onBackToGenerator }) {
@@ -18,6 +18,10 @@ export default function ChatInterface({ selectedModel, onBackToGenerator }) {
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  // State für Spracheingabe
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef(null);
 
   // Default System Prompt (lang und detailliert)
   const DEFAULT_SYSTEM_PROMPT = `Du bist ein professioneller KI-Assistent für Praivio, eine sichere, lokale KI-Plattform für datensensible Institutionen.
@@ -303,6 +307,34 @@ Kontext: Du arbeitest in einer sicheren, lokalen Umgebung für vertrauenswürdig
     });
   };
 
+  // Funktion zum Starten/Stoppen der Spracheingabe
+  const handleSpeechInput = () => {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      alert('Spracheingabe wird von diesem Browser nicht unterstützt.');
+      return;
+    }
+    let SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!recognitionRef.current) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.lang = 'de-DE';
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.maxAlternatives = 1;
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setNewMessage((prev) => prev ? prev + ' ' + transcript : transcript);
+      };
+      recognitionRef.current.onend = () => setIsRecording(false);
+      recognitionRef.current.onerror = () => setIsRecording(false);
+    }
+    if (!isRecording) {
+      setIsRecording(true);
+      recognitionRef.current.start();
+    } else {
+      setIsRecording(false);
+      recognitionRef.current.stop();
+    }
+  };
+
   return (
     <div className="flex h-full bg-slate-950">
       {/* Sidebar - Chat Sessions */}
@@ -532,6 +564,15 @@ Kontext: Du arbeitest in einer sicheren, lokalen Umgebung für vertrauenswürdig
                   rows="1"
                   disabled={isLoading}
                 />
+                <button
+                  onClick={handleSpeechInput}
+                  type="button"
+                  className={`p-3 rounded-lg transition-colors ${isRecording ? 'bg-red-600' : 'bg-slate-700 hover:bg-purple-700'} text-white`}
+                  title={isRecording ? 'Spracheingabe läuft...' : 'Spracheingabe starten'}
+                  disabled={isLoading}
+                >
+                  {isRecording ? <MicOff className="w-5 h-5 animate-pulse" /> : <Mic className="w-5 h-5" />}
+                </button>
                 <button
                   onClick={sendMessage}
                   disabled={!newMessage.trim() || isLoading}

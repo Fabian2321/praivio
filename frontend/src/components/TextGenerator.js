@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { CheckCircle, Copy, Download, Loader2, RotateCcw, Shield, Brain, FileText, Sparkles, Zap } from 'lucide-react';
+import { CheckCircle, Copy, Download, Loader2, RotateCcw, Shield, Brain, FileText, Sparkles, Zap, Mic, MicOff } from 'lucide-react';
 
 // Die Komponente erwartet Props: onGenerate(prompt, context) und isGenerating
 export default function TextGenerator({ prompt, setPrompt, onGenerate, isGenerating }) {
@@ -7,6 +7,8 @@ export default function TextGenerator({ prompt, setPrompt, onGenerate, isGenerat
   const [generatedText, setGeneratedText] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const textareaRef = useRef(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const recognitionRef = useRef(null);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
@@ -54,19 +56,59 @@ export default function TextGenerator({ prompt, setPrompt, onGenerate, isGenerat
     setGeneratedText("");
   };
 
+  const handleSpeechInput = () => {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      alert('Spracheingabe wird von diesem Browser nicht unterstützt.');
+      return;
+    }
+    let SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!recognitionRef.current) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.lang = 'de-DE';
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.maxAlternatives = 1;
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setPrompt((prev) => prev ? prev + ' ' + transcript : transcript);
+      };
+      recognitionRef.current.onend = () => setIsRecording(false);
+      recognitionRef.current.onerror = () => setIsRecording(false);
+    }
+    if (!isRecording) {
+      setIsRecording(true);
+      recognitionRef.current.start();
+    } else {
+      setIsRecording(false);
+      recognitionRef.current.stop();
+    }
+  };
+
   return (
+    <div style={{color: 'red', fontSize: 32}}>TEST_BUILD</div>
     <div className="space-y-6">
       <div className="space-y-6">
         <div className="bg-slate-800 border-2 border-slate-700 rounded-xl p-6 card-shadow">
           <label className="block text-white font-semibold text-lg mb-3">Anfrage</label>
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Geben Sie Ihre Anfrage hier ein... (Strg+Enter zum Generieren)"
-            className="w-full h-32 p-4 bg-slate-900 border-2 border-slate-600 rounded-lg text-white placeholder-slate-400 resize-none focus:border-purple-500 focus:outline-none transition-colors font-mono"
-          />
+          <div className="flex items-start space-x-3">
+            <textarea
+              ref={textareaRef}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Geben Sie Ihre Anfrage hier ein... (Strg+Enter zum Generieren)"
+              className="flex-1 h-32 p-4 bg-slate-900 border-2 border-slate-600 rounded-lg text-white placeholder-slate-400 resize-none focus:border-purple-500 focus:outline-none transition-colors font-mono"
+            />
+            <button
+              onClick={handleSpeechInput}
+              type="button"
+              className={`w-12 h-12 flex items-center justify-center p-3 rounded-lg transition-colors border-4 border-red-500 ${isRecording ? 'bg-red-600' : 'bg-slate-700 hover:bg-purple-700'} text-white mt-1`}
+              title={isRecording ? 'Spracheingabe läuft...' : 'Spracheingabe starten'}
+              style={{ minWidth: 48, minHeight: 48 }}
+            >
+              TEST123
+              {isRecording ? <MicOff className="w-5 h-5 animate-pulse" /> : <Mic className="w-5 h-5" />}
+            </button>
+          </div>
           <div className="flex justify-between items-center mt-3">
             <span className="text-slate-300 text-sm font-medium">{prompt.length} Zeichen</span>
             <span className="text-slate-400 text-xs bg-slate-700 px-2 py-1 rounded border border-slate-600">
