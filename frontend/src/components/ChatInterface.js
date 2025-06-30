@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, MessageSquare, User, Bot, Edit3, Trash2, Plus, ArrowLeft, Settings, Mic, MicOff } from 'lucide-react';
 import axios from 'axios';
+import FileUpload from './FileUpload';
+import AttachedFiles from './AttachedFiles';
+import { supabase } from '../supabaseClient';
 
 export default function ChatInterface({ selectedModel, onBackToGenerator }) {
   const [chatSessions, setChatSessions] = useState([]);
@@ -15,6 +18,10 @@ export default function ChatInterface({ selectedModel, onBackToGenerator }) {
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const [showSystemPromptModal, setShowSystemPromptModal] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
+  
+  // Upload functionality state
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -91,23 +98,30 @@ Kontext: Du arbeitest in einer sicheren, lokalen Umgebung für vertrauenswürdig
     }
   };
 
+  // Hilfsfunktion für Token
+  const getSupabaseToken = async () => {
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.access_token;
+  };
+
   const createNewChatWithMessage = async (messageContent) => {
     setIsLoading(true);
     try {
-      // Erstelle neue Session mit initial_message
+      const token = await getSupabaseToken();
       const response = await fetch(
         `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/chat/sessions`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
           body: JSON.stringify({
             title: newChatTitle || 'Neuer Chat',
             model: selectedModel,
             initial_message: messageContent,
-            system_prompt: systemPrompt
+            system_prompt: systemPrompt,
+            attached_files: attachedFiles.map(file => file.id)
           })
         }
       );
@@ -116,7 +130,6 @@ Kontext: Du arbeitest in einer sicheren, lokalen Umgebung für vertrauenswürdig
       }
       const newSession = await response.json();
       setCurrentSession(newSession);
-      // Lade die Session inkl. aller Nachrichten (inkl. initial_message)
       await loadChatSession(newSession.id);
       setNewMessage('');
     } catch (error) {
@@ -135,97 +148,117 @@ Kontext: Du arbeitest in einer sicheren, lokalen Umgebung für vertrauenswürdig
       setMessages(session.messages);
       setEditingTitleValue(session.title);
       setSystemPrompt(session.system_prompt || DEFAULT_SYSTEM_PROMPT);
+      
+      // Load attached files for this session
+      await loadSessionFiles(sessionId);
     } catch (error) {
       console.error('Error loading chat session:', error);
     }
   };
 
+  // File management functions
+  const loadSessionFiles = async (sessionId) => {
+    try {
+      setIsLoadingFiles(true);
+      const token = await getSupabaseToken();
+      const response = await axios.get(
+        `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/upload/files/${sessionId}`,
+        {
+          headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          }
+        }
+      );
+      
+      if (response.data.success) {
+        setAttachedFiles(response.data.files || []);
+      }
+    } catch (error) {
+      console.error('Error loading session files:', error);
+      setAttachedFiles([]);
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  };
+
+  const handleFileUploaded = (file) => {
+    setAttachedFiles(prev => [...prev, file]);
+  };
+
+  const handleFileRemoved = (fileId) => {
+    setAttachedFiles(prev => prev.filter(file => file.id !== fileId));
+  };
+
   const sendMessage = async () => {
     if (!newMessage.trim() || isLoading) return;
-
-    // If no current session, create a new one
     if (!currentSession) {
       await createNewChatWithMessage(newMessage);
       setNewMessage('');
       return;
     }
-
-    const messageContent = newMessage; // Save the message content
+    const messageContent = newMessage;
     const userMessage = {
       id: `temp_${Date.now()}`,
       role: 'user',
       content: messageContent,
       timestamp: new Date()
     };
-
     setMessages(prev => [...prev, userMessage]);
     setNewMessage('');
     setIsLoading(true);
-
     try {
-      // Create assistant message placeholder
+      const token = await getSupabaseToken();
       const assistantMessage = {
         id: `temp_assistant_${Date.now()}`,
         role: 'assistant',
         content: '',
         timestamp: new Date()
       };
-
       setMessages(prev => [...prev.slice(0, -1), userMessage, assistantMessage]);
-
-      // Send message and handle streaming response
       const response = await fetch(
         `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/chat/sessions/${currentSession.id}/messages`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
-          body: JSON.stringify({ content: messageContent })
+          body: JSON.stringify({ 
+            content: messageContent,
+            attached_files: attachedFiles.map(file => file.id)
+          })
         }
       );
-
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = '';
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         const chunk = decoder.decode(value);
         const lines = chunk.split('\n');
-
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
               if (data.response) {
                 fullContent += data.response;
-                // Update the assistant message with accumulated content
                 setMessages(prev => prev.map(msg => 
                   msg.id === assistantMessage.id 
                     ? { ...msg, content: fullContent }
                     : msg
                 ));
               }
-            } catch (e) {
-              // Ignore parsing errors for incomplete JSON
-            }
+            } catch (e) {}
           }
         }
       }
-
-      // Update chat sessions list
       await loadChatSessions();
     } catch (error) {
       console.error('Error sending message:', error);
-      // Remove the temporary messages on error
       setMessages(prev => prev.slice(0, -2));
     } finally {
       setIsLoading(false);
@@ -564,6 +597,11 @@ Kontext: Du arbeitest in einer sicheren, lokalen Umgebung für vertrauenswürdig
                   rows="1"
                   disabled={isLoading}
                 />
+                <FileUpload
+                  onFileUploaded={handleFileUploaded}
+                  sessionId={currentSession?.id}
+                  disabled={isLoading}
+                />
                 <button
                   onClick={handleSpeechInput}
                   type="button"
@@ -585,6 +623,13 @@ Kontext: Du arbeitest in einer sicheren, lokalen Umgebung für vertrauenswürdig
                   )}
                 </button>
               </div>
+              
+              {/* Attached Files */}
+              <AttachedFiles
+                files={attachedFiles}
+                onFileRemoved={handleFileRemoved}
+                sessionId={currentSession?.id}
+              />
             </div>
           </>
         ) : (

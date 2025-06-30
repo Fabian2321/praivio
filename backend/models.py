@@ -199,6 +199,7 @@ class ChatSessionCreate(BaseModel):
     model: str = Field(..., description="Zu verwendendes Modell")
     initial_message: Optional[str] = Field(None, description="Erste Nachricht (optional)")
     system_prompt: Optional[str] = Field(None, description="System-Prompt (optional)")
+    attached_files: Optional[List[str]] = Field(None, description="Liste von hochgeladenen Datei-IDs")
 
 class ChatSessionUpdate(BaseModel):
     """Modell für Chat-Session-Update"""
@@ -221,6 +222,7 @@ class ChatSessionResponse(BaseModel):
 class ChatMessageRequest(BaseModel):
     """Modell für Chat-Nachrichten-Request"""
     content: str = Field(..., min_length=1, max_length=10000, description="Nachrichteninhalt")
+    attached_files: Optional[List[str]] = Field(None, description="Liste von hochgeladenen Datei-IDs")
     
     @validator('content')
     def sanitize_content(cls, v):
@@ -238,6 +240,49 @@ class ChatSessionWithMessages(BaseModel):
     messages: List[ChatMessage]
     created_at: datetime
     updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Upload-Funktionalität Modelle
+class FileUpload(BaseModel):
+    """Modell für Datei-Upload"""
+    filename: str = Field(..., description="Dateiname")
+    file_type: str = Field(..., description="Dateityp (pdf, image, audio)")
+    file_size: int = Field(..., ge=1, description="Dateigröße in Bytes")
+    content_type: str = Field(..., description="MIME-Type")
+    
+    @validator('file_type')
+    def validate_file_type(cls, v):
+        allowed_types = ['pdf', 'image', 'audio']
+        if v not in allowed_types:
+            raise ValueError(f'Dateityp muss einer von {allowed_types} sein')
+        return v
+    
+    @validator('file_size')
+    def validate_file_size(cls, v):
+        max_sizes = {
+            'pdf': 10 * 1024 * 1024,  # 10 MB
+            'image': 5 * 1024 * 1024,  # 5 MB
+            'audio': 25 * 1024 * 1024  # 25 MB
+        }
+        # We'll validate against specific type later
+        if v > 25 * 1024 * 1024:  # Max 25 MB overall
+            raise ValueError('Datei ist zu groß (max 25 MB)')
+        return v
+
+class UploadedFile(BaseModel):
+    """Modell für hochgeladene Datei"""
+    id: str
+    filename: str
+    file_type: str
+    file_size: int
+    content_type: str
+    storage_path: str
+    user_id: str
+    session_id: Optional[str] = Field(None, description="Chat-Session-ID")
+    processed_content: Optional[str] = Field(None, description="Verarbeiteter Inhalt (Text, Transkript, etc.)")
+    created_at: datetime = Field(default_factory=datetime.now)
     
     class Config:
         from_attributes = True 

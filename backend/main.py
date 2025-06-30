@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse, StreamingResponse
@@ -18,6 +18,7 @@ from supabase_auth import supabase_auth  # Use Supabase auth instead
 from audit_logger import AuditLogger
 from models import *
 from database import DatabaseManager
+from file_upload import file_upload_handler
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -666,10 +667,26 @@ async def create_chat_session(request: ChatSessionCreate):
         session_id = f"chat_{uuid.uuid4().hex[:16]}"
         # Create chat session with system prompt
         db_manager.create_chat_session(session_id, user_id, request.title, request.model, request.system_prompt)
+        
+        # Update attached files with session_id if any
+        if request.attached_files:
+            try:
+                for file_id in request.attached_files:
+                    # Update file in Supabase to link it to this session
+                    result = file_upload_handler.supabase.table('uploaded_files').update({
+                        'session_id': session_id
+                    }).eq('id', file_id).eq('user_id', user_id).execute()
+                    
+                    if result.error:
+                        logger.warning(f"Failed to update file {file_id} with session_id: {result.error}")
+            except Exception as e:
+                logger.error(f"Error updating attached files: {e}")
+        
         # Add initial message if provided
         if request.initial_message:
             message_id = f"msg_{uuid.uuid4().hex[:16]}"
             db_manager.add_chat_message(message_id, session_id, "user", request.initial_message)
+        
         # Get created session
         session = db_manager.get_chat_session(session_id, user_id)
         return ChatSessionResponse(
@@ -814,6 +831,26 @@ async def send_chat_message(session_id: str, request: ChatMessageRequest):
     if session.get('system_prompt'):
         conversation_parts.append(f"System: {session['system_prompt']}")
     
+    # Add attached files context if any
+    if request.attached_files:
+        try:
+            files_context = []
+            for file_id in request.attached_files:
+                file_info = await file_upload_handler.get_file(file_id, user_id)
+                if file_info and file_info.get('processed_content'):
+                    file_type_emoji = {
+                        'pdf': '📄',
+                        'image': '🖼️',
+                        'audio': '🎤'
+                    }.get(file_info['file_type'], '📎')
+                    
+                    files_context.append(f"{file_type_emoji} {file_info['filename']}:\n{file_info['processed_content']}")
+            
+            if files_context:
+                conversation_parts.append("Angehängte Dateien:\n" + "\n\n".join(files_context))
+        except Exception as e:
+            logger.error(f"Error processing attached files: {e}")
+    
     # Add conversation history (excluding the current user message)
     for msg in messages[:-1]:  # Exclude the current user message
         role_prefix = "User: " if msg['role'] == 'user' else "Assistant: "
@@ -867,6 +904,120 @@ async def send_chat_message(session_id: str, request: ChatMessageRequest):
             "Content-Type": "text/event-stream",
         }
     )
+
+# File Upload Endpoints
+@app.post("/upload/file")
+async def upload_file(
+    file: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+    current_user: Dict[str, Any] = Depends(supabase_auth.get_current_user)
+):
+    """Upload einer Datei (PDF, Bild, Audio)"""
+    try:
+        # Lese Dateiinhalt
+        file_content = await file.read()
+        
+        # Upload und Verarbeitung
+        result = await file_upload_handler.upload_file(
+            file_content=file_content,
+            filename=file.filename,
+            content_type=file.content_type,
+            user_id=current_user['id'],
+            session_id=session_id
+        )
+        
+        # Audit-Log
+        audit_logger.log_user_action(
+            user_id=current_user['id'],
+            action="FILE_UPLOAD",
+            details=f"Uploaded {file.filename} ({result['file_type']})",
+            ip_address="unknown",
+            success=True
+        )
+        
+        return {
+            "success": True,
+            "file": result
+        }
+        
+    except ValueError as e:
+        # Validierungsfehler
+        audit_logger.log_user_action(
+            user_id=current_user['id'],
+            action="FILE_UPLOAD_ERROR",
+            details=f"Validation error: {str(e)}",
+            ip_address="unknown",
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"File upload failed: {e}")
+        audit_logger.log_user_action(
+            user_id=current_user['id'],
+            action="FILE_UPLOAD_ERROR",
+            details=f"Upload failed: {str(e)}",
+            ip_address="unknown",
+            success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Upload failed"
+        )
+
+@app.get("/upload/files/{session_id}")
+async def get_session_files(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(supabase_auth.get_current_user)
+):
+    """Holt alle Dateien einer Chat-Session"""
+    try:
+        files = await file_upload_handler.get_session_files(session_id, current_user['id'])
+        return {
+            "success": True,
+            "files": files
+        }
+    except Exception as e:
+        logger.error(f"Get session files failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get files"
+        )
+
+@app.delete("/upload/files/{file_id}")
+async def delete_file(
+    file_id: str,
+    current_user: Dict[str, Any] = Depends(supabase_auth.get_current_user)
+):
+    """Löscht eine Datei"""
+    try:
+        success = await file_upload_handler.delete_file(file_id, current_user['id'])
+        
+        if success:
+            audit_logger.log_user_action(
+                user_id=current_user['id'],
+                action="FILE_DELETE",
+                details=f"Deleted file {file_id}",
+                ip_address="unknown",
+                success=True
+            )
+            return {"success": True, "message": "File deleted successfully"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete file failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete file"
+        )
 
 @app.get("/favicon.ico")
 async def favicon():
